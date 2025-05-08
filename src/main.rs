@@ -71,7 +71,7 @@ impl Parser {
                 Action::Accept => {
                     break;
                 },
-                _ => {},
+                _ => { return vec![0] },
             };
         }
         output
@@ -140,6 +140,8 @@ fn from_reducer(path: &str) -> Vec<(char, String)> {
 fn main() {
     let mut parser = Parser::new("./group.csv", "./reducer");
     dbg!(parser.parse(String::from("1+1$")));
+    let mut parser = Parser::new("./paren.csv", "./paren_reducer");
+    dbg!(parser.parse(String::from("<<<>>><<>>$")));
 }
 
 #[cfg(test)]
@@ -153,5 +155,12 @@ mod tests {
         assert_eq!(parser.parse(String::from("1*1$")), vec![5, 3, 5, 1]);
         assert_eq!(parser.parse(String::from("1*0+1$")), vec![5, 3, 4, 1, 5, 2]);
         assert_eq!(parser.parse(String::from("1+1*0$")), vec![5, 3, 5, 2, 4, 1]);
+    }
+
+    #[test]
+    fn test_paren_parse() {
+        let mut parser = Parser::new("./paren.csv", "./paren_reducer");
+        assert_eq!(parser.parse(String::from("<>$")), vec![1]);
+        assert_eq!(parser.parse(String::from("<<>><>$")), vec![1, 2, 1, 3]);
     }
 }
