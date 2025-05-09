@@ -104,11 +104,12 @@ fn from_table(path: &str) -> (Vec<char>, Vec<Vec<Action>>) {
             row.unwrap()
                 .iter()
                 .map(|field| {
-                    let f = field.trim().to_string();
+                    let mut f = field.trim().to_string();
                     let (prefix, id): (char, usize) = (
-                        f.chars().nth(0).unwrap(),
-                        f.chars().nth(1).unwrap_or('0').to_digit(10).unwrap() as usize,
+                        f.remove(0),
+                        f.parse::<usize>().unwrap_or(0),
                     );
+                    dbg!(prefix, id);
                     match (prefix, id) {
                         ('S', id) => Action::Shift(id),
                         ('R', id) => Action::Reduce(id),
@@ -141,12 +142,23 @@ fn main() {
     let mut parser = Parser::new("./group.csv", "./reducer");
     dbg!(parser.parse(String::from("1+1$")));
     let mut parser = Parser::new("./paren.csv", "./paren_reducer");
-    dbg!(parser.parse(String::from("<<<>>><<>><>$")));
+    dbg!(parser.parse(String::from("<><<>><>$")));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_from_table() {
+        let (elems, actions) = from_table("./group.csv");
+        assert_eq!(elems, vec!['*', '+', '0', '1', '$', 'E', 'B']);
+        assert_eq!(actions[0][0], Action::Error);
+
+        let (elems, actions) = from_table("./test.csv");
+        assert_eq!(elems, vec!['1']);
+        assert_eq!(actions[0][0], Action::Shift(10));
+    }
 
     #[test]
     fn test_parse() {
