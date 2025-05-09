@@ -131,7 +131,9 @@ fn from_reducer(path: &str) -> Vec<(char, String)> {
     for line in content.lines() {
         let condition: Vec<&str> = line.trim().split("->").collect();
         assert!(condition.len() == 2);
-        let (before, after) = (condition[0].chars().nth(0).unwrap(), condition[1].trim().to_string());
+        let (before, after) = (
+            condition[0].chars().nth(0).unwrap(), 
+            condition[1].trim().chars().filter(|c| !c.is_whitespace()).collect::<String>());
         reducer.push((before, after));
     }
 
@@ -158,6 +160,12 @@ mod tests {
         let (elems, actions) = from_table("./test.csv");
         assert_eq!(elems, vec!['1']);
         assert_eq!(actions[0][0], Action::Shift(10));
+    }
+
+    #[test]
+    fn test_from_reducer() {
+        let reducer = from_reducer("./test_reducer");
+        assert_eq!(reducer[0], ('A', String::from("A+A")));
     }
 
     #[test]
