@@ -1,4 +1,4 @@
-use std::fs::{read_to_string, File};
+use std::fs::{File, read_to_string};
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 enum Action {
@@ -35,7 +35,7 @@ impl Parser {
             .enumerate()
             .find(|(_i, s)| **s == input)
             .unwrap();
-        actions[idx].clone()
+        actions[idx]
     }
 
     fn parse(&mut self, mut input: String) -> Vec<usize> {
@@ -46,16 +46,22 @@ impl Parser {
         let mut chars: Vec<char> = input.chars().collect();
         input.clear();
         let mut output = vec![];
-    
+
         while let Some(head) = chars.first().cloned() {
             let action = self.action(head);
-            println!("head: {} || state: {} || action{:?} || stack : {:?}", head, self.state, action, self.stack.clone());
+            println!(
+                "head: {} || state: {} || action{:?} || stack : {:?}",
+                head,
+                self.state,
+                action,
+                self.stack.clone()
+            );
             match action {
                 Action::Shift(id) => {
                     self.stack.push(id);
                     chars.remove(0);
                     self.state = id;
-                },
+                }
                 Action::Reduce(id) => {
                     output.push(id);
                     let (num_pop, result) = self.apply_reducer(id);
@@ -67,16 +73,15 @@ impl Parser {
                         self.stack.push(next);
                     }
                     self.state = *self.stack.last().unwrap();
-                },
+                }
                 Action::Accept => {
                     break;
-                },
-                _ => { return vec![0] },
+                }
+                _ => return vec![0],
             };
         }
         output
     }
-    
 
     fn apply_reducer(&self, id: usize) -> (usize, char) {
         let (after, before) = &self.reducer[id - 1];
@@ -105,10 +110,8 @@ fn from_table(path: &str) -> (Vec<char>, Vec<Vec<Action>>) {
                 .iter()
                 .map(|field| {
                     let mut f = field.trim().to_string();
-                    let (prefix, id): (char, usize) = (
-                        f.remove(0),
-                        f.parse::<usize>().unwrap_or(0),
-                    );
+                    let (prefix, id): (char, usize) =
+                        (f.remove(0), f.parse::<usize>().unwrap_or(0));
                     dbg!(prefix, id);
                     match (prefix, id) {
                         ('S', id) => Action::Shift(id),
@@ -132,8 +135,13 @@ fn from_reducer(path: &str) -> Vec<(char, String)> {
         let condition: Vec<&str> = line.trim().split("->").collect();
         assert!(condition.len() == 2);
         let (before, after) = (
-            condition[0].chars().nth(0).unwrap(), 
-            condition[1].trim().chars().filter(|c| !c.is_whitespace()).collect::<String>());
+            condition[0].chars().next().unwrap(),
+            condition[1]
+                .trim()
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect::<String>(),
+        );
         reducer.push((before, after));
     }
 
@@ -182,6 +190,9 @@ mod tests {
         let mut parser = Parser::new("./paren.csv", "./paren_reducer");
         assert_eq!(parser.parse(String::from("<>$")), vec![1]);
         assert_eq!(parser.parse(String::from("<<>><>$")), vec![1, 2, 1, 3]);
-        assert_eq!(parser.parse(String::from("<><><><><><>$")), vec![1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 3]);
+        assert_eq!(
+            parser.parse(String::from("<><><><><><>$")),
+            vec![1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 3]
+        );
     }
 }
