@@ -112,7 +112,6 @@ fn from_table(path: &str) -> (Vec<char>, Vec<Vec<Action>>) {
                     let mut f = field.trim().to_string();
                     let (prefix, id): (char, usize) =
                         (f.remove(0), f.parse::<usize>().unwrap_or(0));
-                    dbg!(prefix, id);
                     match (prefix, id) {
                         ('S', id) => Action::Shift(id),
                         ('R', id) => Action::Reduce(id),
