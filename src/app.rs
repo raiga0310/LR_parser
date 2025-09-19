@@ -219,6 +219,7 @@ impl ParserApp {
                     "Mul" => "*".to_string(),
                     "L_paren" => "(".to_string(),
                     "R_paren" => ")".to_string(),
+                    "Token" => "".to_string(),
                     _ => symbol.to_string(),
                 }
             }
