@@ -55,6 +55,13 @@ impl ParserApp {
                                 }
                             }
                         });
+
+                    ui.add_space(20.0); // セクション間の余白
+
+                    // Generateボタン
+                    if ui.button(egui::RichText::new("Generate Code").size(18.0)).clicked() {
+                        self.generate_code();
+                    }
                 },
             );
 

@@ -1,5 +1,5 @@
 use eframe::egui;
-use lr0_parser_rs::Parser;
+use lr0_parser_rs::{Parser, from_reducer_string};
 
 use crate::app::ParserApp;
 
@@ -94,6 +94,9 @@ impl ParserApp {
                         .collect::<String>()
                 };
                 *parser_state = Some(parser);
+
+                // 終端記号を更新
+                self.terminals = from_reducer_string(&reducer_clone).unwrap().1;
 
                 // 新しい終端記号に対してデフォルトのプルダウン選択を設定
                 for &terminal in &self.terminals {
