@@ -1,10 +1,7 @@
 [package]
-name = "LR-parser-rs"
+name = "lr0-parser-rs"
 version = "0.1.0"
 edition = "2024"
-
-[dependencies]
-csv = "1.3.1"
 
 [profile.dev]
 opt-level = 0
