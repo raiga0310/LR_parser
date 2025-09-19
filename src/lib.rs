@@ -61,7 +61,7 @@ pub struct Parser {
 
 impl Parser {
     pub fn new_from_string(reducer_str: &str) -> Result<Self, String> {
-        let reducer_map = from_reducer_string(reducer_str)?;
+        let reducer_map = from_reducer_string(reducer_str)?.0;
         let (symbols, table) = Self::generate_lr0_table(&reducer_map);
         Ok(Parser {
             stack: vec![],
@@ -322,8 +322,11 @@ impl Parser {
     }
 }
 
-pub fn from_reducer_string(content: &str) -> Result<Vec<(char, String)>, String> {
+type ReducerResult = Result<(Vec<(char, String)>, Vec<char>), String>;
+
+pub fn from_reducer_string(content: &str) -> ReducerResult {
     let mut reducer = Vec::new();
+    let mut terminals = HashSet::new();
     for line in content.lines() {
         if line.trim().is_empty() {
             continue;
@@ -343,9 +346,17 @@ pub fn from_reducer_string(content: &str) -> Result<Vec<(char, String)>, String>
                 .filter(|c| !c.is_whitespace())
                 .collect::<String>(),
         );
-        reducer.push((before, after));
+        reducer.push((before, after.clone()));
+
+        // Collect terminals (non-uppercase letters in the right-hand side)
+        for c in after.chars() {
+            if !c.is_ascii_uppercase() {
+                terminals.insert(c);
+            }
+        }
     }
-    Ok(reducer)
+    let terminals_vec: Vec<char> = terminals.into_iter().collect();
+    Ok((reducer, terminals_vec))
 }
 
 #[cfg(test)]
@@ -355,7 +366,7 @@ mod tests {
     #[test]
     fn test_from_reducer() {
         let reducer = from_reducer_string(include_str!("../test_reducer")).unwrap();
-        assert_eq!(reducer[0], ('A', String::from("A+A")));
+        assert_eq!(reducer.0[0], ('A', String::from("A+A")));
     }
 
     #[test]
