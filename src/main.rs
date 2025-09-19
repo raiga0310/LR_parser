@@ -51,14 +51,19 @@ impl App for ParserApp {
         ctx.set_style(style);
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.add_space(20.0); // 上部の余白
-            ui.heading("LR(0) Parser GUI");
-            ui.add_space(20.0); // タイトル下の余白
-
-            // 左右のレイアウト（3:7の比率）
             ui.horizontal(|ui| {
-                // 左側パネル（30%）
-                ui.allocate_ui_with_layout(
+                // 左側余白を追加
+                ui.add_space(10.0);
+
+                ui.vertical(|ui| {
+                    ui.add_space(20.0); // 上部の余白
+                    ui.heading("LR(0) Parser GUI");
+                    ui.add_space(20.0); // タイトル下の余白
+
+                    // 左右のレイアウト（3:7の比率）
+                    ui.horizontal(|ui| {
+                        // 左側パネル（30%）
+                        ui.allocate_ui_with_layout(
                     egui::Vec2::new(ui.available_width() * 0.3, ui.available_height()),
                     egui::Layout::top_down(egui::Align::LEFT),
                     |ui| {
@@ -118,35 +123,37 @@ impl App for ParserApp {
                     },
                 );
 
-                ui.add_space(20.0); // 左右のパネル間の余白
+                        ui.add_space(20.0); // 左右のパネル間の余白
 
-                // 右側パネル（70%）
-                ui.allocate_ui_with_layout(
-                    egui::Vec2::new(ui.available_width(), ui.available_height()),
-                    egui::Layout::top_down(egui::Align::LEFT),
-                    |ui| {
-                        ui.add_space(15.0); // セクション間の余白
-                        ui.label(egui::RichText::new("Parse Result (AST):").size(18.0));
-                        ui.add_space(10.0);
+                        // 右側パネル（70%）
+                        ui.allocate_ui_with_layout(
+                            egui::Vec2::new(ui.available_width(), ui.available_height()),
+                            egui::Layout::top_down(egui::Align::LEFT),
+                            |ui| {
+                                ui.add_space(15.0); // セクション間の余白
+                                ui.label(egui::RichText::new("Parse Result (AST):").size(18.0));
+                                ui.add_space(10.0);
 
-                        // 結果表示エリア
-                        egui::ScrollArea::vertical()
-                            .min_scrolled_height(400.0)
-                            .show(ui, |ui| {
-                                ui.add(
-                                    egui::Label::new(
-                                        egui::RichText::new(&self.parser_result)
-                                            .monospace()
-                                            .size(14.0),
-                                    )
-                                    .wrap(),
-                                );
-                            });
-                    },
-                );
+                                // 結果表示エリア
+                                egui::ScrollArea::vertical()
+                                    .min_scrolled_height(400.0)
+                                    .show(ui, |ui| {
+                                        ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new(&self.parser_result)
+                                                    .monospace()
+                                                    .size(14.0),
+                                            )
+                                            .wrap(),
+                                        );
+                                    });
+                            },
+                        );
+                    });
+
+                    ui.add_space(20.0); // 下部の余白
+                });
             });
-
-            ui.add_space(20.0); // 下部の余白
         });
     }
 }
