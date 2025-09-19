@@ -133,3 +133,22 @@ cargo run
 ```sh
 cargo test
 ```
+
+## プロジェクト構造
+```
+src/
+├── main.rs                # エントリーポイント
+├── lib.rs                 # ライブラリルート
+├── app.rs                 # メインアプリケーション構造体
+├── generator_engine.rs    # コード生成エンジン
+└── pages/                 # UIページモジュール
+    ├── mod.rs            # ページモジュール管理
+    ├── parser.rs         # パーサーページUI
+    └── generator.rs      # ジェネレーターページUI
+```
+
+### アーキテクチャの責務分離
+- **app.rs**: GUI状態管理とページ切り替え
+- **generator_engine.rs**: AST解析、コード生成、実行処理
+- **pages/parser.rs**: パーサーページのUI処理
+- **pages/generator.rs**: ジェネレーターページのUI処理

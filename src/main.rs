@@ -1,6 +1,7 @@
 use eframe::NativeOptions;
 
 mod app;
+mod generator_engine;
 mod pages;
 
 use app::ParserApp;
