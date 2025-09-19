@@ -84,7 +84,9 @@ impl ParserApp {
 
         match Parser::new_from_string(&reducer_clone) {
             Ok(mut parser) => {
-                let ast_nodes = parser.parse(input_clone);
+                // 入力文字列の末尾に$（EOF記号）を追加
+                let input_with_eof = format!("{}$", input_clone);
+                let ast_nodes = parser.parse(input_with_eof);
                 self.parser_result = if ast_nodes.is_empty() {
                     String::from("Failed to parse or invalid inputs")
                 } else {
