@@ -95,10 +95,8 @@ impl Parser {
                         .ast_stack
                         .drain(self.ast_stack.len() - num_pop..)
                         .collect();
-                    let reversed_children = children.into_iter().rev().collect::<Vec<_>>();
 
-                    self.ast_stack
-                        .push(AstNode::NonTerminal(result, reversed_children));
+                    self.ast_stack.push(AstNode::NonTerminal(result, children));
 
                     for _ in 0..num_pop {
                         let _ = self.stack.pop();
@@ -369,12 +367,12 @@ mod tests {
             vec![AstNode::NonTerminal(
                 'E',
                 vec![
-                    AstNode::NonTerminal('B', vec![AstNode::Terminal('1'),],),
-                    AstNode::Terminal('+'),
                     AstNode::NonTerminal(
                         'E',
-                        vec![AstNode::NonTerminal('B', vec![AstNode::Terminal('1'),],),],
+                        vec![AstNode::NonTerminal('B', vec![AstNode::Terminal('1')]),],
                     ),
+                    AstNode::Terminal('+'),
+                    AstNode::NonTerminal('B', vec![AstNode::Terminal('1'),]),
                 ],
             ),]
         );
@@ -384,19 +382,19 @@ mod tests {
             vec![AstNode::NonTerminal(
                 'E',
                 vec![
-                    AstNode::NonTerminal('B', vec![AstNode::Terminal('1')],),
-                    AstNode::Terminal('*'),
                     AstNode::NonTerminal(
                         'E',
                         vec![
-                            AstNode::NonTerminal('B', vec![AstNode::Terminal('1')],),
-                            AstNode::Terminal('+'),
                             AstNode::NonTerminal(
                                 'E',
-                                vec![AstNode::NonTerminal('B', vec![AstNode::Terminal('1')],)],
+                                vec![AstNode::NonTerminal('B', vec![AstNode::Terminal('1')]),],
                             ),
+                            AstNode::Terminal('+'),
+                            AstNode::NonTerminal('B', vec![AstNode::Terminal('1')]),
                         ],
                     ),
+                    AstNode::Terminal('*'),
+                    AstNode::NonTerminal('B', vec![AstNode::Terminal('1')]),
                 ],
             )]
         );
@@ -413,19 +411,16 @@ mod tests {
                 vec![
                     AstNode::NonTerminal(
                         'E',
-                        vec![AstNode::Terminal('>'), AstNode::Terminal('<'),],
-                    ),
-                    AstNode::NonTerminal(
-                        'E',
                         vec![
-                            AstNode::Terminal('>'),
+                            AstNode::Terminal('<'),
                             AstNode::NonTerminal(
                                 'E',
-                                vec![AstNode::Terminal('>'), AstNode::Terminal('<'),],
+                                vec![AstNode::Terminal('<'), AstNode::Terminal('>')],
                             ),
-                            AstNode::Terminal('<'),
+                            AstNode::Terminal('>'),
                         ],
                     ),
+                    AstNode::NonTerminal('E', vec![AstNode::Terminal('<'), AstNode::Terminal('>')],),
                 ],
             )]
         );
