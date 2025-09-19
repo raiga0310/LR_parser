@@ -3,9 +3,9 @@ pub mod parser;
 use crate::parser::Parser;
 fn main() {
     let mut parser = Parser::new("./reducer");
-    dbg!(parser.parse(String::from("1+1$")));
+    println!("{}", parser.parse(String::from("1*1+1$"))[0]);
     let mut parser = Parser::new("./paren_reducer");
-    dbg!(parser.parse(String::from("<><<>><>$")));
+    println!("{}", parser.parse(String::from("<><<>><>$"))[0]);
 }
 
 #[cfg(test)]
@@ -21,20 +21,83 @@ mod tests {
     #[test]
     fn test_parse() {
         let mut parser = Parser::new("./reducer");
-        assert_eq!(parser.parse(String::from("1+1$")), vec![5, 3, 5, 2]);
-        assert_eq!(parser.parse(String::from("1*1$")), vec![5, 3, 5, 1]);
-        assert_eq!(parser.parse(String::from("1*0+1$")), vec![5, 3, 4, 1, 5, 2]);
-        assert_eq!(parser.parse(String::from("1+1*0$")), vec![5, 3, 5, 2, 4, 1]);
+        let result = parser.parse(String::from("1+1$"));
+        assert_eq!(
+            result,
+            vec![parser::AstNode::NonTerminal(
+                'E',
+                vec![
+                    parser::AstNode::NonTerminal('B', vec![parser::AstNode::Terminal('1'),],),
+                    parser::AstNode::Terminal('+'),
+                    parser::AstNode::NonTerminal(
+                        'E',
+                        vec![parser::AstNode::NonTerminal(
+                            'B',
+                            vec![parser::AstNode::Terminal('1'),],
+                        ),],
+                    ),
+                ],
+            ),]
+        );
+        let result = parser.parse(String::from("1+1*1$"));
+        assert_eq!(
+            result,
+            vec![parser::AstNode::NonTerminal(
+                'E',
+                vec![
+                    parser::AstNode::NonTerminal('B', vec![parser::AstNode::Terminal('1')],),
+                    parser::AstNode::Terminal('*'),
+                    parser::AstNode::NonTerminal(
+                        'E',
+                        vec![
+                            parser::AstNode::NonTerminal('B', vec![parser::AstNode::Terminal('1')],),
+                            parser::AstNode::Terminal('+'),
+                            parser::AstNode::NonTerminal(
+                                'E',
+                                vec![parser::AstNode::NonTerminal(
+                                    'B',
+                                    vec![parser::AstNode::Terminal('1')],
+                                )],
+                            ),
+                        ],
+                    ),
+                ],
+            )]
+        );
     }
 
     #[test]
     fn test_paren_parse() {
         let mut parser = Parser::new("./paren_reducer");
-        assert_eq!(parser.parse(String::from("<>$")), vec![1]);
-        assert_eq!(parser.parse(String::from("<<>><>$")), vec![1, 2, 1, 3]);
+        let result = parser.parse(String::from("<<>><>$"));
         assert_eq!(
-            parser.parse(String::from("<><><><><><>$")),
-            vec![1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 3]
+            result,
+            vec![parser::AstNode::NonTerminal(
+                'E',
+                vec![
+                    parser::AstNode::NonTerminal(
+                        'E',
+                        vec![
+                            parser::AstNode::Terminal('>'),
+                            parser::AstNode::Terminal('<'),
+                        ],
+                    ),
+                    parser::AstNode::NonTerminal(
+                        'E',
+                        vec![
+                            parser::AstNode::Terminal('>'),
+                            parser::AstNode::NonTerminal(
+                                'E',
+                                vec![
+                                    parser::AstNode::Terminal('>'),
+                                    parser::AstNode::Terminal('<'),
+                                ],
+                            ),
+                            parser::AstNode::Terminal('<'),
+                        ],
+                    ),
+                ],
+            )]
         );
     }
 }
