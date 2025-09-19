@@ -1,6 +1,33 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::fs::read_to_string;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AstNode {
+    Terminal(char),
+    NonTerminal(char, Vec<AstNode>),
+}
+fn print_ast(node: &AstNode, f: &mut fmt::Formatter, indent: usize) -> fmt::Result {
+    match node {
+        AstNode::Terminal(c) => {
+            writeln!(f, "{:indent$}{}", "", c, indent = indent * 4)?;
+        }
+        AstNode::NonTerminal(name, children) => {
+            writeln!(f, "{:indent$}{}", "", name, indent = indent * 4)?;
+            for child in children {
+                print_ast(child, f, indent + 1)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+// Displayトレイトの実装
+impl fmt::Display for AstNode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        print_ast(self, f, 0)
+    }
+}
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 enum Action {
     Shift(usize),
@@ -27,6 +54,7 @@ pub(crate) struct Parser {
     state: usize,
     table: (Vec<char>, Vec<Vec<Action>>),
     reducer: Vec<(char, String)>,
+    ast_stack: Vec<AstNode>,
 }
 
 impl Parser {
@@ -38,6 +66,7 @@ impl Parser {
             state: 0,
             table: (symbols, table),
             reducer: reducer_map,
+            ast_stack: vec![],
         }
     }
 
@@ -242,11 +271,12 @@ impl Parser {
         actions[idx]
     }
 
-    pub fn parse(&mut self, mut input: String) -> Vec<usize> {
+    pub fn parse(&mut self, mut input: String) -> Vec<AstNode> {
         println!("case: {}", input.clone());
         self.stack.clear();
         self.stack.push(0);
         self.state = 0;
+        self.ast_stack.clear();
         let mut chars: Vec<char> = input.chars().collect();
         input.clear();
         let mut output = vec![];
@@ -258,17 +288,26 @@ impl Parser {
                 head,
                 self.state,
                 action,
-                self.stack.clone()
+                self.stack.clone(),
             );
             match action {
                 Action::Shift(id) => {
                     self.stack.push(id);
+                    self.ast_stack.push(AstNode::Terminal(head));
                     chars.remove(0);
                     self.state = id;
                 }
                 Action::Reduce(id) => {
                     output.push(id);
                     let (num_pop, result) = self.apply_reducer(id);
+                    let children: Vec<AstNode> = self
+                        .ast_stack
+                        .drain(self.ast_stack.len() - num_pop..)
+                        .collect();
+                    let reversed_children = children.into_iter().rev().collect::<Vec<_>>();
+                    self.ast_stack
+                        .push(AstNode::NonTerminal(result, reversed_children));
+
                     for _ in 0..num_pop {
                         let _ = self.stack.pop();
                     }
@@ -281,10 +320,10 @@ impl Parser {
                 Action::Accept => {
                     break;
                 }
-                _ => return vec![0],
+                _ => return vec![],
             };
         }
-        output
+        self.ast_stack.drain(..).collect()
     }
 
     fn apply_reducer(&self, id: usize) -> (usize, char) {
