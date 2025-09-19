@@ -1,33 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::fs::read_to_string;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AstNode {
-    Terminal(char),
-    NonTerminal(char, Vec<AstNode>),
-}
-fn print_ast(node: &AstNode, f: &mut fmt::Formatter, indent: usize) -> fmt::Result {
-    match node {
-        AstNode::Terminal(c) => {
-            writeln!(f, "{:indent$}{}", "", c, indent = indent * 4)?;
-        }
-        AstNode::NonTerminal(name, children) => {
-            writeln!(f, "{:indent$}{}", "", name, indent = indent * 4)?;
-            for child in children {
-                print_ast(child, f, indent + 1)?;
-            }
-        }
-    }
-    Ok(())
-}
-
-// Displayトレイトの実装
-impl fmt::Display for AstNode {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        print_ast(self, f, 0)
-    }
-}
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 enum Action {
     Shift(usize),
@@ -49,7 +22,36 @@ struct Item {
     dot_pos: usize,
 }
 
-pub(crate) struct Parser {
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub enum AstNode {
+    Terminal(char),
+    NonTerminal(char, Vec<AstNode>),
+}
+
+// ASTNode の表示用補助関数
+fn print_ast(node: &AstNode, f: &mut fmt::Formatter, indent: usize) -> fmt::Result {
+    match node {
+        AstNode::Terminal(c) => {
+            writeln!(f, "{:indent$}{}", "", c, indent = indent * 4)?;
+        }
+        AstNode::NonTerminal(name, children) => {
+            writeln!(f, "{:indent$}{}", "", name, indent = indent * 4)?;
+            for child in children {
+                print_ast(child, f, indent + 1)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+// Displayトレイトの実装
+impl fmt::Display for AstNode {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        print_ast(self, f, 0)
+    }
+}
+
+pub struct Parser {
     stack: Vec<usize>,
     state: usize,
     table: (Vec<char>, Vec<Vec<Action>>),
@@ -58,23 +60,68 @@ pub(crate) struct Parser {
 }
 
 impl Parser {
-    pub fn new(reducer_path: &str) -> Self {
-        let reducer_map = from_reducer(reducer_path);
+    pub fn new_from_string(reducer_str: &str) -> Result<Self, String> {
+        let reducer_map = from_reducer_string(reducer_str)?;
         let (symbols, table) = Self::generate_lr0_table(&reducer_map);
-        Parser {
+        Ok(Parser {
             stack: vec![],
             state: 0,
             table: (symbols, table),
             reducer: reducer_map,
             ast_stack: vec![],
-        }
+        })
     }
 
+    pub fn parse(&mut self, mut input: String) -> Vec<AstNode> {
+        self.stack.clear();
+        self.stack.push(0);
+        self.state = 0;
+        self.ast_stack.clear();
+        let mut chars: Vec<char> = input.chars().collect();
+        input.clear();
+
+        while let Some(head) = chars.first().cloned() {
+            let action = self.action(head);
+            match action {
+                Action::Shift(id) => {
+                    self.stack.push(id);
+                    self.ast_stack.push(AstNode::Terminal(head));
+                    chars.remove(0);
+                    self.state = id;
+                }
+                Action::Reduce(id) => {
+                    let (num_pop, result) = self.apply_reducer(id);
+                    let children: Vec<AstNode> = self
+                        .ast_stack
+                        .drain(self.ast_stack.len() - num_pop..)
+                        .collect();
+                    let reversed_children = children.into_iter().rev().collect::<Vec<_>>();
+
+                    self.ast_stack
+                        .push(AstNode::NonTerminal(result, reversed_children));
+
+                    for _ in 0..num_pop {
+                        let _ = self.stack.pop();
+                    }
+                    self.state = *self.stack.last().unwrap();
+                    if let Action::Goto(next) = self.action(result) {
+                        self.stack.push(next);
+                    }
+                    self.state = *self.stack.last().unwrap();
+                }
+                Action::Accept => {
+                    break;
+                }
+                _ => return vec![],
+            };
+        }
+        self.ast_stack.drain(..).collect()
+    }
+
+    // ... その他の補助メソッド（generate_lr0_table, parse_grammar, closure, goto, action, apply_reducer）
     fn generate_lr0_table(reducer_map: &Vec<(char, String)>) -> (Vec<char>, Vec<Vec<Action>>) {
         let (mut productions, non_terminals, terminals) = Self::parse_grammar(reducer_map);
         let start_symbol = productions[0].left;
-
-        // Augmented grammar: S' -> S
         let augmented_start = (start_symbol as u8 + 1) as char;
         productions.insert(
             0,
@@ -271,75 +318,27 @@ impl Parser {
         actions[idx]
     }
 
-    pub fn parse(&mut self, mut input: String) -> Vec<AstNode> {
-        println!("case: {}", input.clone());
-        self.stack.clear();
-        self.stack.push(0);
-        self.state = 0;
-        self.ast_stack.clear();
-        let mut chars: Vec<char> = input.chars().collect();
-        input.clear();
-        let mut output = vec![];
-
-        while let Some(head) = chars.first().cloned() {
-            let action = self.action(head);
-            println!(
-                "head: {} || state: {} || action{:?} || stack : {:?}",
-                head,
-                self.state,
-                action,
-                self.stack.clone(),
-            );
-            match action {
-                Action::Shift(id) => {
-                    self.stack.push(id);
-                    self.ast_stack.push(AstNode::Terminal(head));
-                    chars.remove(0);
-                    self.state = id;
-                }
-                Action::Reduce(id) => {
-                    output.push(id);
-                    let (num_pop, result) = self.apply_reducer(id);
-                    let children: Vec<AstNode> = self
-                        .ast_stack
-                        .drain(self.ast_stack.len() - num_pop..)
-                        .collect();
-                    let reversed_children = children.into_iter().rev().collect::<Vec<_>>();
-                    self.ast_stack
-                        .push(AstNode::NonTerminal(result, reversed_children));
-
-                    for _ in 0..num_pop {
-                        let _ = self.stack.pop();
-                    }
-                    self.state = *self.stack.last().unwrap();
-                    if let Action::Goto(next) = self.action(result) {
-                        self.stack.push(next);
-                    }
-                    self.state = *self.stack.last().unwrap();
-                }
-                Action::Accept => {
-                    break;
-                }
-                _ => return vec![],
-            };
-        }
-        self.ast_stack.drain(..).collect()
-    }
-
     fn apply_reducer(&self, id: usize) -> (usize, char) {
         let (after, before) = &self.reducer[id - 1];
         (before.len(), *after)
     }
 }
 
-pub fn from_reducer(path: &str) -> Vec<(char, String)> {
+pub fn from_reducer_string(content: &str) -> Result<Vec<(char, String)>, String> {
     let mut reducer = Vec::new();
-    let content = read_to_string(path).unwrap();
     for line in content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
         let condition: Vec<&str> = line.trim().split("->").collect();
-        assert!(condition.len() == 2);
+        if condition.len() != 2 {
+            return Err(format!("Invalid reducer format: {}", line));
+        }
         let (before, after) = (
-            condition[0].chars().next().unwrap(),
+            condition[0]
+                .chars()
+                .next()
+                .ok_or("Invalid left-hand side")?,
             condition[1]
                 .trim()
                 .chars()
@@ -348,5 +347,87 @@ pub fn from_reducer(path: &str) -> Vec<(char, String)> {
         );
         reducer.push((before, after));
     }
-    reducer
+    Ok(reducer)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_reducer() {
+        let reducer = from_reducer_string(include_str!("../test_reducer")).unwrap();
+        assert_eq!(reducer[0], ('A', String::from("A+A")));
+    }
+
+    #[test]
+    fn test_parse() {
+        let mut parser = Parser::new_from_string(include_str!("../reducer")).unwrap();
+        let result = parser.parse(String::from("1+1$"));
+        assert_eq!(
+            result,
+            vec![AstNode::NonTerminal(
+                'E',
+                vec![
+                    AstNode::NonTerminal('B', vec![AstNode::Terminal('1'),],),
+                    AstNode::Terminal('+'),
+                    AstNode::NonTerminal(
+                        'E',
+                        vec![AstNode::NonTerminal('B', vec![AstNode::Terminal('1'),],),],
+                    ),
+                ],
+            ),]
+        );
+        let result = parser.parse(String::from("1+1*1$"));
+        assert_eq!(
+            result,
+            vec![AstNode::NonTerminal(
+                'E',
+                vec![
+                    AstNode::NonTerminal('B', vec![AstNode::Terminal('1')],),
+                    AstNode::Terminal('*'),
+                    AstNode::NonTerminal(
+                        'E',
+                        vec![
+                            AstNode::NonTerminal('B', vec![AstNode::Terminal('1')],),
+                            AstNode::Terminal('+'),
+                            AstNode::NonTerminal(
+                                'E',
+                                vec![AstNode::NonTerminal('B', vec![AstNode::Terminal('1')],)],
+                            ),
+                        ],
+                    ),
+                ],
+            )]
+        );
+    }
+
+    #[test]
+    fn test_paren_parse() {
+        let mut parser = Parser::new_from_string(include_str!("../paren_reducer")).unwrap();
+        let result = parser.parse(String::from("<<>><>$"));
+        assert_eq!(
+            result,
+            vec![AstNode::NonTerminal(
+                'E',
+                vec![
+                    AstNode::NonTerminal(
+                        'E',
+                        vec![AstNode::Terminal('>'), AstNode::Terminal('<'),],
+                    ),
+                    AstNode::NonTerminal(
+                        'E',
+                        vec![
+                            AstNode::Terminal('>'),
+                            AstNode::NonTerminal(
+                                'E',
+                                vec![AstNode::Terminal('>'), AstNode::Terminal('<'),],
+                            ),
+                            AstNode::Terminal('<'),
+                        ],
+                    ),
+                ],
+            )]
+        );
+    }
 }
