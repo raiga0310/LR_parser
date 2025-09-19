@@ -62,6 +62,13 @@ impl ParserApp {
                     if ui.button(egui::RichText::new("Generate Code").size(18.0)).clicked() {
                         self.generate_code();
                     }
+
+                    ui.add_space(10.0); // ボタン間の余白
+
+                    // Run Rust Codeボタン
+                    if ui.button(egui::RichText::new("Run Rust Code").size(18.0)).clicked() {
+                        self.run_rust_code();
+                    }
                 },
             );
 
@@ -78,12 +85,12 @@ impl ParserApp {
 
                     // 実行結果表示エリア
                     egui::ScrollArea::vertical().id_salt("generate_result_area")
-                        .min_scrolled_height(400.0)
+                        .max_height(200.0)
                         .show(ui, |ui| {
                             if self.generate_result.is_empty() {
                                 ui.add(
                                     egui::Label::new(
-                                        egui::RichText::new("No generation results yet.\nGeneration functionality will be implemented soon.")
+                                        egui::RichText::new("No generation results yet.\nClick 'Generate Code' to generate Rust code from AST.")
                                             .size(14.0)
                                             .color(egui::Color32::GRAY),
                                     )
@@ -94,7 +101,37 @@ impl ParserApp {
                                     egui::Label::new(
                                         egui::RichText::new(&self.generate_result)
                                             .monospace()
-                                            .size(14.0),
+                                            .size(12.0),
+                                    )
+                                    .wrap(),
+                                );
+                            }
+                        });
+
+                    ui.add_space(20.0); // セクション間の余白
+
+                    // 実行結果セクション
+                    ui.label(egui::RichText::new("Execution Result:").size(18.0));
+                    ui.add_space(10.0);
+
+                    egui::ScrollArea::vertical().id_salt("run_result_area")
+                        .max_height(200.0)
+                        .show(ui, |ui| {
+                            if self.run_result.is_empty() {
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new("No execution results yet.\nClick 'Run Rust Code' to execute generated code.")
+                                            .size(14.0)
+                                            .color(egui::Color32::GRAY),
+                                    )
+                                    .wrap(),
+                                );
+                            } else {
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(&self.run_result)
+                                            .monospace()
+                                            .size(12.0),
                                     )
                                     .wrap(),
                                 );

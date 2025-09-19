@@ -13,6 +13,7 @@ pub struct ParserApp {
     pub current_page: usize, // 現在表示中のページ (0: Parser, 1: Generator)
     pub generate_result: String,
     pub terminal_types: HashMap<char, String>, // 各終端記号のプルダウン選択状態
+    pub run_result: String,                    // Rustコード実行結果
 }
 
 impl Default for ParserApp {
@@ -26,6 +27,7 @@ impl Default for ParserApp {
             current_page: 0,
             generate_result: String::new(),
             terminal_types: HashMap::new(),
+            run_result: String::new(),
         }
     }
 }
@@ -225,5 +227,14 @@ impl ParserApp {
             }
             _ => String::new(),
         }
+    }
+
+    // 生成されたRustコードを実行
+    pub fn run_rust_code(&mut self) {
+        if self.generate_result.is_empty() {
+            self.run_result = "No code to run. Please generate code first.".to_string();
+            return;
+        }
+        self.run_result = "Not implemented".to_string();
     }
 }
