@@ -326,7 +326,7 @@ type ReducerResult = Result<(Vec<(char, String)>, Vec<char>), String>;
 
 pub fn from_reducer_string(content: &str) -> ReducerResult {
     let mut reducer = Vec::new();
-    let mut non_terminals = HashSet::new();
+    let mut terminals = HashSet::new();
     for line in content.lines() {
         if line.trim().is_empty() {
             continue;
@@ -346,11 +346,17 @@ pub fn from_reducer_string(content: &str) -> ReducerResult {
                 .filter(|c| !c.is_whitespace())
                 .collect::<String>(),
         );
-        non_terminals.insert(before);
-        reducer.push((before, after));
+        reducer.push((before, after.clone()));
+
+        // Collect terminals (non-uppercase letters in the right-hand side)
+        for c in after.chars() {
+            if !c.is_ascii_uppercase() {
+                terminals.insert(c);
+            }
+        }
     }
-    let non_terminals_vec: Vec<char> = non_terminals.into_iter().collect();
-    Ok((reducer, non_terminals_vec))
+    let terminals_vec: Vec<char> = terminals.into_iter().collect();
+    Ok((reducer, terminals_vec))
 }
 
 #[cfg(test)]
