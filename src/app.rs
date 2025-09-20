@@ -1,6 +1,6 @@
 use crate::generator_engine::GeneratorEngine;
 use eframe::{App, egui};
-use lr0_parser_rs::{Parser, from_reducer_string};
+use lr0_parser_rs::{Action, Parser, from_reducer_string};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -16,6 +16,7 @@ pub struct ParserApp {
     pub terminal_types: HashMap<char, String>, // 各終端記号のプルダウン選択状態
     pub run_result: String,                    // Rustコード実行結果
     pub generator_engine: GeneratorEngine,     // コード生成エンジン
+    pub parse_table: Option<(Vec<char>, Vec<Vec<Action>>)>, // 構文解析表
 }
 
 impl Default for ParserApp {
@@ -31,6 +32,7 @@ impl Default for ParserApp {
             terminal_types: HashMap::new(),
             run_result: String::new(),
             generator_engine: GeneratorEngine::new(),
+            parse_table: None,
         }
     }
 }
@@ -42,18 +44,18 @@ impl App for ParserApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
-                // 左側余白を追加
-                ui.add_space(10.0);
+                // 左側余白を削減
+                ui.add_space(5.0);
 
                 ui.vertical(|ui| {
-                    ui.add_space(20.0); // 上部の余白
+                    ui.add_space(10.0); // 上部の余白を削減
                     ui.heading("LR(0) Parser GUI");
-                    ui.add_space(20.0); // タイトル下の余白
+                    ui.add_space(10.0); // タイトル下の余白を削減
 
                     // タブ選択
                     self.show_tabs(ui);
 
-                    ui.add_space(20.0);
+                    ui.add_space(10.0); // タブ下の余白を削減
 
                     // 現在のページに応じて表示を切り替え
                     match self.current_page {
@@ -62,7 +64,7 @@ impl App for ParserApp {
                         _ => {}
                     }
 
-                    ui.add_space(20.0); // 下部の余白
+                    ui.add_space(10.0); // 下部の余白を削減
                 });
             });
         });

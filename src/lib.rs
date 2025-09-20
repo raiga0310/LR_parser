@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
-enum Action {
+pub enum Action {
     Shift(usize),
     Reduce(usize),
     Accept,
@@ -70,6 +70,22 @@ impl Parser {
             reducer: reducer_map,
             ast_stack: vec![],
         })
+    }
+
+    // 構文解析表を取得するメソッドを追加
+    pub fn get_parse_table(&self) -> (Vec<char>, Vec<Vec<Action>>) {
+        self.table.clone()
+    }
+
+    // Actionを文字列に変換するメソッドを追加
+    pub fn action_to_string(action: &Action) -> String {
+        match action {
+            Action::Shift(state) => format!("s{}", state),
+            Action::Reduce(prod) => format!("r{}", prod),
+            Action::Accept => "acc".to_string(),
+            Action::Goto(state) => format!("g{}", state),
+            Action::Error => "".to_string(),
+        }
     }
 
     pub fn parse(&mut self, mut input: String) -> Vec<AstNode> {
