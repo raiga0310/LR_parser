@@ -93,7 +93,7 @@ impl Parser {
         self.stack.push(0);
         self.state = 0;
         self.ast_stack.clear();
-        let mut chars: Vec<char> = input.chars().collect();
+        let mut chars: Vec<char> = input.chars().filter(|&c| !c.is_whitespace()).collect();
         input.clear();
 
         while let Some(head) = chars.first().cloned() {
