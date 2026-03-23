@@ -3,5 +3,16 @@ name = "lr0-parser-rs"
 version = "0.1.0"
 edition = "2024"
 
-[profile.dev]
-opt-level = 0
+[lib]
+name = "lr0_parser_rs"
+path = "src/lib.rs"
+
+[[bin]]
+name = "lr0-parser-gui"
+path = "src/main.rs"
+
+[dependencies]
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+eframe = "0.32.3"
+egui = "0.32.3"
