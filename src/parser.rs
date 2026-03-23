@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs::read_to_string;
 
@@ -29,7 +29,7 @@ impl fmt::Display for AstNode {
     }
 }
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
-enum Action {
+pub enum Action {
     Shift(usize),
     Reduce(usize),
     Accept,
@@ -37,13 +37,13 @@ enum Action {
     Error,
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(PartialEq, Eq, Hash, Clone, Debug, PartialOrd, Ord)]
 struct Production {
     left: char,
     right: Vec<char>,
 }
 
-#[derive(PartialEq, Eq, Hash, Clone, Debug)]
+#[derive(PartialEq, Eq, Hash, Clone, Debug, PartialOrd, Ord)]
 struct Item {
     production: Production,
     dot_pos: usize,
@@ -84,8 +84,8 @@ impl Parser {
             },
         );
 
-        let mut items_sets: Vec<HashSet<Item>> = vec![];
-        let mut edges: HashMap<(usize, char), usize> = HashMap::new();
+        let mut items_sets: Vec<BTreeSet<Item>> = vec![];
+        let mut edges: BTreeMap<(usize, char), usize> = BTreeMap::new();
 
         let initial_item = Item {
             production: productions[0].clone(),
@@ -176,11 +176,11 @@ impl Parser {
 
     fn parse_grammar(
         reducer_map: &Vec<(char, String)>,
-    ) -> (Vec<Production>, HashSet<char>, HashSet<char>) {
+    ) -> (Vec<Production>, BTreeSet<char>, BTreeSet<char>) {
         let mut productions = vec![];
-        let mut non_terminals = HashSet::new();
-        let mut terminals = HashSet::new();
-        let mut all_symbols = HashSet::new();
+        let mut non_terminals = BTreeSet::new();
+        let mut terminals = BTreeSet::new();
+        let mut all_symbols = BTreeSet::new();
 
         for (left, right) in reducer_map {
             non_terminals.insert(*left);
@@ -208,10 +208,10 @@ impl Parser {
     }
 
     fn closure(
-        items: &HashSet<Item>,
+        items: &BTreeSet<Item>,
         productions: &[Production],
-        non_terminals: &HashSet<char>,
-    ) -> HashSet<Item> {
+        non_terminals: &BTreeSet<char>,
+    ) -> BTreeSet<Item> {
         let mut closure_set = items.clone();
         let mut new_items_to_add = closure_set.clone();
 
@@ -245,12 +245,12 @@ impl Parser {
     }
 
     fn goto(
-        items: &HashSet<Item>,
+        items: &BTreeSet<Item>,
         symbol: char,
         productions: &[Production],
-        non_terminals: &HashSet<char>,
-    ) -> HashSet<Item> {
-        let mut next_items = HashSet::new();
+        non_terminals: &BTreeSet<char>,
+    ) -> BTreeSet<Item> {
+        let mut next_items = BTreeSet::new();
         for item in items {
             if item.dot_pos < item.production.right.len()
                 && item.production.right[item.dot_pos] == symbol
@@ -261,6 +261,14 @@ impl Parser {
             }
         }
         Self::closure(&next_items, productions, non_terminals)
+    }
+
+    pub fn get_symbols(&self) -> &Vec<char> {
+        &self.table.0
+    }
+
+    pub fn get_table(&self) -> &(Vec<char>, Vec<Vec<Action>>) {
+        &self.table
     }
 
     fn action(&self, input: char) -> Action {
