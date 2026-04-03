@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::grammar::{Grammar, NonTerminal, Production, Symbol, Terminal};
 
-pub(crate) fn compile(grammar: &Grammar) -> Result<CompiledParser, ParserError> {
+pub fn compile(grammar: &Grammar) -> Result<CompiledParser, ParserError> {
     let mut productions = grammar.productions.clone();
     let start_symbol = grammar.start;
     let augmented_start = NonTerminal(((start_symbol.0 as u8) + 1) as char);
@@ -119,6 +119,7 @@ pub(crate) fn compile(grammar: &Grammar) -> Result<CompiledParser, ParserError> 
         action_table,
         goto_table,
         start_state: 0,
+        state_count: item_sets.len(),
     })
 }
 
@@ -213,26 +214,27 @@ struct Item {
     dot_pos: usize,
 }
 
-pub(crate) type InternalState = usize;
+pub type InternalState = usize;
 type ProductionId = usize;
 
-pub(crate) struct CompiledParser {
+pub struct CompiledParser {
     productions: Vec<Production>,
     action_table: BTreeMap<(InternalState, Terminal), Action>,
     goto_table: BTreeMap<(InternalState, NonTerminal), InternalState>,
     start_state: InternalState,
+    state_count: usize,
 }
 
 impl CompiledParser {
-    pub(crate) fn start_state(&self) -> InternalState {
+    pub fn start_state(&self) -> InternalState {
         self.start_state
     }
 
-    pub(crate) fn action(&self, state: InternalState, terminal: Terminal) -> Option<Action> {
+    pub fn action(&self, state: InternalState, terminal: Terminal) -> Option<Action> {
         self.action_table.get(&(state, terminal)).copied()
     }
 
-    pub(crate) fn goto(
+    pub fn goto(
         &self,
         state: InternalState,
         non_terminal: NonTerminal,
@@ -240,8 +242,12 @@ impl CompiledParser {
         self.goto_table.get(&(state, non_terminal)).copied()
     }
 
-    pub(crate) fn production(&self, id: ProductionId) -> Option<&Production> {
+    pub fn production(&self, id: ProductionId) -> Option<&Production> {
         self.productions.get(id)
+    }
+
+    pub fn state_count(&self) -> usize {
+        self.state_count
     }
 }
 

@@ -47,7 +47,7 @@ impl ParserState {
     }
 }
 
-pub(crate) fn step(
+pub fn step(
     machine: &CompiledParser,
     state: ParserState,
 ) -> Result<StepResult, RuntimeError> {
@@ -118,7 +118,7 @@ pub(crate) fn step(
     }
 }
 
-pub(crate) fn run(
+pub fn run(
     machine: &CompiledParser,
     input: &[Symbol],
 ) -> Result<ParserResult, RuntimeError> {

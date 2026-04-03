@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
-pub(crate) fn read_file(path: &str) -> Result<String, std::io::Error> {
+pub fn read_file(path: &str) -> Result<String, std::io::Error> {
     std::fs::read_to_string(path)
 }
 
-pub(crate) fn parse_grammar_text(input: &str) -> Result<Grammar, GrammarError> {
+pub fn parse_grammar_text(input: &str) -> Result<Grammar, GrammarError> {
     let mut productions = Vec::new();
 
     for line in input.lines() {
@@ -57,13 +57,13 @@ pub(crate) fn parse_grammar_text(input: &str) -> Result<Grammar, GrammarError> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Grammar {
+pub struct Grammar {
     pub start: NonTerminal,
     pub productions: Vec<Production>,
 }
 
 impl Grammar {
-    pub(crate) fn non_terminals(&self) -> BTreeSet<NonTerminal> {
+    pub fn non_terminals(&self) -> BTreeSet<NonTerminal> {
         let mut set = BTreeSet::new();
         set.insert(self.start);
         for production in &self.productions {
@@ -77,7 +77,7 @@ impl Grammar {
         set
     }
 
-    pub(crate) fn terminals(&self) -> BTreeSet<Terminal> {
+    pub fn terminals(&self) -> BTreeSet<Terminal> {
         let mut set = BTreeSet::new();
         for production in &self.productions {
             for symbol in &production.right {
@@ -122,6 +122,20 @@ impl Symbol {
             Ok(Self::Terminal(Terminal(value)))
         }
     }
+}
+
+pub fn parse_input_text(input: &str) -> Result<Vec<Symbol>, GrammarError> {
+    let mut symbols = Vec::new();
+
+    for value in input.chars().filter(|c| !c.is_whitespace()) {
+        if value.is_ascii_uppercase() {
+            return Err(GrammarError::InvalidSymbol(value));
+        }
+        symbols.push(Symbol::Terminal(Terminal(value)));
+    }
+
+    symbols.push(Symbol::Terminal(Terminal('$')));
+    Ok(symbols)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
