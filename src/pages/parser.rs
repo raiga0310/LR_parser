@@ -193,12 +193,7 @@ impl ParserApp {
                 Ok(machine) => {
                     self.parse_table = Some(build_parse_table(&grammar, &machine));
                     self.terminals = terminals_from_grammar(&grammar);
-
-                    for &terminal in &self.terminals {
-                        self.terminal_types
-                            .entry(terminal)
-                            .or_insert_with(|| "Token".to_string());
-                    }
+                    self.apply_default_terminal_types();
 
                     match parse_input_text(&self.input_string).and_then(|symbols| {
                         run(&machine, &symbols)

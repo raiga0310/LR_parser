@@ -32,6 +32,10 @@ pub struct ParserApp {
     pub terminals: Vec<char>,
     pub current_page: usize,
     pub generate_result: String,
+    pub generator_ast_preview: String,
+    pub generator_source_preview: String,
+    pub generator_expression_preview: String,
+    pub generator_notes: Vec<String>,
     pub terminal_types: HashMap<char, String>,
     pub run_result: String,
     pub generator_engine: GeneratorEngine,
@@ -47,6 +51,10 @@ impl Default for ParserApp {
             terminals: vec![],
             current_page: 0,
             generate_result: String::new(),
+            generator_ast_preview: String::new(),
+            generator_source_preview: String::new(),
+            generator_expression_preview: String::new(),
+            generator_notes: Vec::new(),
             terminal_types: HashMap::new(),
             run_result: String::new(),
             generator_engine: GeneratorEngine::new(),
@@ -130,6 +138,7 @@ impl ParserApp {
                 self.terminals = parse_grammar_text(&self.reducer_string)
                     .map(|grammar| terminals_from_grammar(&grammar))
                     .unwrap_or_default();
+                self.apply_default_terminal_types();
             }
         });
     }
@@ -137,13 +146,54 @@ impl ParserApp {
     pub fn generate_code(&mut self) {
         self.generator_engine
             .set_terminal_types(self.terminal_types.clone());
-        self.generate_result = self
+        match self
             .generator_engine
-            .generate_code(&self.reducer_string, &self.input_string);
+            .generate_output(&self.reducer_string, &self.input_string)
+        {
+            Ok(output) => {
+                self.generator_ast_preview = output.ast_preview;
+                self.generator_source_preview = output.source_preview;
+                self.generator_expression_preview =
+                    output.evaluation_expression.unwrap_or_else(|| "<not available>".to_string());
+                self.generator_notes = output.notes;
+                self.generate_result = output.generated_code;
+                self.run_result.clear();
+            }
+            Err(err) => {
+                self.generator_ast_preview.clear();
+                self.generator_source_preview.clear();
+                self.generator_expression_preview.clear();
+                self.generator_notes = vec![err.clone()];
+                self.generate_result = err;
+                self.run_result.clear();
+            }
+        }
     }
 
     pub fn run_rust_code(&mut self) {
         self.run_result = self.generator_engine.run_rust_code(&self.generate_result);
+    }
+
+    pub fn apply_default_terminal_types(&mut self) {
+        for &terminal in &self.terminals {
+            self.terminal_types
+                .entry(terminal)
+                .or_insert_with(|| default_terminal_role(terminal).to_string());
+        }
+    }
+}
+
+pub fn default_terminal_role(symbol: char) -> &'static str {
+    match symbol {
+        '+' => "Add",
+        '-' => "Sub",
+        '*' => "Mul",
+        '/' => "Div",
+        '%' => "Mod",
+        '(' | '<' | '[' | '{' => "LParen",
+        ')' | '>' | ']' | '}' => "RParen",
+        '0'..='9' => "Num",
+        _ => "Token",
     }
 }
 
