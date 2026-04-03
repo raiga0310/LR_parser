@@ -1,22 +1,41 @@
 use crate::generator_engine::GeneratorEngine;
 use eframe::{App, egui};
-use lr0_parser_rs::{Action, Parser, from_reducer_string};
+use lr0_parser_rs::grammar::{Grammar, parse_grammar_text};
+use lr0_parser_rs::lr::{self, CompiledParser};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
-// GUIアプリケーションの状態を管理する構造体
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ParseTableAction {
+    Shift(usize),
+    Reduce(usize),
+    Accept,
+    Goto(usize),
+    Error,
+}
+
+impl ParseTableAction {
+    pub fn as_label(self) -> String {
+        match self {
+            Self::Shift(state) => format!("s{}", state),
+            Self::Reduce(production) => format!("r{}", production),
+            Self::Accept => "acc".to_string(),
+            Self::Goto(state) => format!("g{}", state),
+            Self::Error => String::new(),
+        }
+    }
+}
+
 pub struct ParserApp {
     pub input_string: String,
     pub reducer_string: String,
     pub parser_result: String,
     pub terminals: Vec<char>,
-    pub parser_state: Arc<Mutex<Option<Parser>>>,
-    pub current_page: usize, // 現在表示中のページ (0: Parser, 1: Generator)
+    pub current_page: usize,
     pub generate_result: String,
-    pub terminal_types: HashMap<char, String>, // 各終端記号のプルダウン選択状態
-    pub run_result: String,                    // Rustコード実行結果
-    pub generator_engine: GeneratorEngine,     // コード生成エンジン
-    pub parse_table: Option<(Vec<char>, Vec<Vec<Action>>)>, // 構文解析表
+    pub terminal_types: HashMap<char, String>,
+    pub run_result: String,
+    pub generator_engine: GeneratorEngine,
+    pub parse_table: Option<(Vec<char>, Vec<Vec<ParseTableAction>>)>,
 }
 
 impl Default for ParserApp {
@@ -26,7 +45,6 @@ impl Default for ParserApp {
             reducer_string: String::from("E -> E*B\nE -> E+B\nE -> B\nB -> 0\nB -> 1"),
             parser_result: String::new(),
             terminals: vec![],
-            parser_state: Arc::new(Mutex::new(None)),
             current_page: 0,
             generate_result: String::new(),
             terminal_types: HashMap::new(),
@@ -39,32 +57,28 @@ impl Default for ParserApp {
 
 impl App for ParserApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // フォントサイズを設定（スタイルを使用）
         self.setup_fonts(ctx);
 
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.horizontal(|ui| {
-                // 左側余白を削減
                 ui.add_space(5.0);
 
                 ui.vertical(|ui| {
-                    ui.add_space(10.0); // 上部の余白を削減
+                    ui.add_space(10.0);
                     ui.heading("LR(0) Parser GUI");
-                    ui.add_space(10.0); // タイトル下の余白を削減
+                    ui.add_space(10.0);
 
-                    // タブ選択
                     self.show_tabs(ui);
 
-                    ui.add_space(10.0); // タブ下の余白を削減
+                    ui.add_space(10.0);
 
-                    // 現在のページに応じて表示を切り替え
                     match self.current_page {
                         0 => self.show_parser_page(ui),
                         1 => self.show_generator_page(ui),
                         _ => {}
                     }
 
-                    ui.add_space(10.0); // 下部の余白を削減
+                    ui.add_space(10.0);
                 });
             });
         });
@@ -72,7 +86,6 @@ impl App for ParserApp {
 }
 
 impl ParserApp {
-    // フォント設定
     fn setup_fonts(&self, ctx: &egui::Context) {
         let mut style = (*ctx.style()).clone();
         style.text_styles = [
@@ -101,7 +114,6 @@ impl ParserApp {
         ctx.set_style(style);
     }
 
-    // タブ表示
     fn show_tabs(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             if ui
@@ -115,25 +127,70 @@ impl ParserApp {
                 .clicked()
             {
                 self.current_page = 1;
-                self.terminals = from_reducer_string(&self.reducer_string.clone()).unwrap().1;
+                self.terminals = parse_grammar_text(&self.reducer_string)
+                    .map(|grammar| terminals_from_grammar(&grammar))
+                    .unwrap_or_default();
             }
         });
     }
 
-    // コード生成処理
     pub fn generate_code(&mut self) {
-        // GeneratorEngineに終端記号タイプを設定
         self.generator_engine
             .set_terminal_types(self.terminal_types.clone());
-
-        // コード生成を実行
         self.generate_result = self
             .generator_engine
             .generate_code(&self.reducer_string, &self.input_string);
     }
 
-    // 生成されたRustコードを実行
     pub fn run_rust_code(&mut self) {
         self.run_result = self.generator_engine.run_rust_code(&self.generate_result);
     }
+}
+
+pub fn terminals_from_grammar(grammar: &Grammar) -> Vec<char> {
+    grammar
+        .terminals()
+        .into_iter()
+        .filter_map(|terminal| (terminal.0 != '$').then_some(terminal.0))
+        .collect()
+}
+
+pub fn build_parse_table(
+    grammar: &Grammar,
+    compiled_parser: &CompiledParser,
+) -> (Vec<char>, Vec<Vec<ParseTableAction>>) {
+    let mut symbols: Vec<char> = grammar.terminals().into_iter().map(|terminal| terminal.0).collect();
+    if !symbols.contains(&'$') {
+        symbols.push('$');
+    }
+    symbols.extend(
+        grammar
+            .non_terminals()
+            .into_iter()
+            .map(|non_terminal| non_terminal.0),
+    );
+
+    let mut table = vec![vec![ParseTableAction::Error; symbols.len()]; compiled_parser.state_count()];
+
+    for state in 0..compiled_parser.state_count() {
+        for (column, symbol) in symbols.iter().copied().enumerate() {
+            table[state][column] = if symbol == '$' || !symbol.is_ascii_uppercase() {
+                compiled_parser
+                    .action(state, lr0_parser_rs::grammar::Terminal(symbol))
+                    .map(|action| match action {
+                        lr::Action::Shift(next) => ParseTableAction::Shift(next),
+                        lr::Action::Reduce(production) => ParseTableAction::Reduce(production),
+                        lr::Action::Accept => ParseTableAction::Accept,
+                    })
+                    .unwrap_or(ParseTableAction::Error)
+            } else {
+                compiled_parser
+                    .goto(state, lr0_parser_rs::grammar::NonTerminal(symbol))
+                    .map(ParseTableAction::Goto)
+                    .unwrap_or(ParseTableAction::Error)
+            };
+        }
+    }
+
+    (symbols, table)
 }
