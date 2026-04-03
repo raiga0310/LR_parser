@@ -1,6 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
+mod ast;
+mod grammar;
+mod lr;
+mod runtime;
+
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum Action {
     Shift(usize),
@@ -386,6 +391,16 @@ pub fn from_reducer_string(content: &str) -> ReducerResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::grammar::{self, Symbol, Terminal};
+    use crate::{lr, runtime};
+
+    fn terminal_input(input: &str) -> Vec<Symbol> {
+        input
+            .chars()
+            .filter(|c| !c.is_whitespace())
+            .map(|c| Symbol::Terminal(Terminal(c)))
+            .collect()
+    }
 
     #[test]
     fn test_from_reducer() {
@@ -441,23 +456,35 @@ mod tests {
         let result = parser.parse(String::from("<<>><>$"));
         assert_eq!(
             result,
-            vec![AstNode::NonTerminal(
-                'E',
-                vec![
-                    AstNode::NonTerminal(
-                        'E',
-                        vec![
-                            AstNode::Terminal('<'),
-                            AstNode::NonTerminal(
-                                'E',
-                                vec![AstNode::Terminal('<'), AstNode::Terminal('>')],
-                            ),
-                            AstNode::Terminal('>'),
-                        ],
-                    ),
-                    AstNode::NonTerminal('E', vec![AstNode::Terminal('<'), AstNode::Terminal('>')],),
-                ],
-            )]
+            vec![
+                AstNode::NonTerminal(
+                    'E',
+                    vec![
+                        AstNode::NonTerminal(
+                            'E',
+                            vec![
+                                AstNode::Terminal('<'),
+                                AstNode::NonTerminal('E', vec![AstNode::Terminal('<'), AstNode::Terminal('>')]),
+                                AstNode::Terminal('>'),
+                            ]
+                        ),
+                        AstNode::NonTerminal('E', vec![AstNode::Terminal('<'), AstNode::Terminal('>')]),
+                    ]
+                )
+            ]
         );
+    }
+
+    #[test]
+    fn test_new_parse() {
+        let mut parser = Parser::new_from_string(include_str!("../paren_reducer")).unwrap();
+        let content = grammar::read_file("paren_reducer").unwrap();
+        let grammar = grammar::parse_grammar_text(&content).unwrap();
+        let compiled_parser = lr::compile(&grammar).unwrap();
+        let old_result = parser.parse(String::from("<<>><>$"));
+        let new_result = runtime::run(&compiled_parser, &terminal_input("<<>><>$")).unwrap();
+
+        assert_eq!(old_result.len(), 1);
+        assert_eq!(old_result[0].to_string(), new_result.ast.to_string());
     }
 }

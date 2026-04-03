@@ -61,7 +61,11 @@ mod tests {
     fn table_symbols_order_is_deterministic() {
         let p1 = Parser::new("./paren_reducer");
         let p2 = Parser::new("./paren_reducer");
-        assert_eq!(p1.get_symbols(), p2.get_symbols(), "symbolsの順序が毎回異なる");
+        assert_eq!(
+            p1.get_symbols(),
+            p2.get_symbols(),
+            "symbolsの順序が毎回異なる"
+        );
     }
 
     #[test]
@@ -83,7 +87,8 @@ mod tests {
     fn table_has_exactly_one_accept() {
         let p = Parser::new("./reducer");
         let (_, table) = p.get_table();
-        let accepts = table.iter()
+        let accepts = table
+            .iter()
             .flat_map(|row| row.iter())
             .filter(|&&a| a == parser::Action::Accept)
             .count();
