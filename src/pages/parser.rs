@@ -1,6 +1,6 @@
 use eframe::egui;
-use lr0_parser_rs::grammar::{GrammarError, parse_grammar_text, parse_input_text};
-use lr0_parser_rs::lr::{ParserError, compile};
+use lr0_parser_rs::grammar::{Grammar, GrammarError, Symbol, parse_grammar_text, parse_input_text};
+use lr0_parser_rs::lr::{CompiledParser, ParserError, compile};
 use lr0_parser_rs::runtime::{RuntimeError, run};
 use lr0_parser_rs::StepAction;
 use std::fmt;
@@ -10,6 +10,7 @@ use crate::app::{
     ParseTableAction, ParserApp, ParserKind, build_animation_trace, build_parse_table,
     terminals_from_grammar,
 };
+use crate::validation::Validation;
 
 enum UiError {
     Grammar(GrammarError),
@@ -65,6 +66,59 @@ impl fmt::Display for UiError {
             }
         }
     }
+}
+
+/// grammar 側のエラー（parse or compile）と input 側のエラーを区別するUI層エラー型。
+/// これにより、両チェーンが互いに独立して失敗したとき両方のエラーを蓄積できる。
+#[derive(Debug)]
+enum InputValidationError {
+    Grammar(GrammarError),
+    Compile(ParserError),
+    Input(GrammarError),
+}
+
+impl fmt::Display for InputValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Self::Grammar(e) => write!(f, "Grammar: {}", UiError::Grammar(e.clone())),
+            Self::Compile(e) => write!(f, "Compile: {}", UiError::Compile(e.clone())),
+            Self::Input(GrammarError::InvalidSymbol(c)) => {
+                write!(f, "Input: '{c}' は非終端記号のため入力文字列に使用できません")
+            }
+            Self::Input(e) => write!(f, "Input: {}", UiError::Grammar(e.clone())),
+        }
+    }
+}
+
+/// grammar parse → compile の依存的逐次チェーンが両方成功したときの中間値。
+struct CompiledGrammar {
+    grammar: Grammar,
+    machine: CompiledParser,
+}
+
+/// grammar 側チェーンと input 側チェーンの両方が成功したときのみ生成される実行リクエスト。
+struct RunRequest {
+    grammar:       Grammar,
+    machine:       CompiledParser,
+    input_symbols: Vec<Symbol>,
+}
+
+/// grammar text の parse → compile を依存的な逐次チェーンとして実行する。
+/// parse が失敗すれば compile は行わない。
+fn validated_compile(grammar_text: &str) -> Validation<InputValidationError, CompiledGrammar> {
+    let grammar = match parse_grammar_text(grammar_text) {
+        Ok(g)  => g,
+        Err(e) => return Validation::invalid(InputValidationError::Grammar(e)),
+    };
+    match compile(&grammar) {
+        Ok(machine) => Validation::valid(CompiledGrammar { grammar, machine }),
+        Err(e)      => Validation::invalid(InputValidationError::Compile(e)),
+    }
+}
+
+/// input text の parse は grammar と独立して行える。
+fn validate_input(input_text: &str) -> Validation<InputValidationError, Vec<Symbol>> {
+    Validation::from_result(parse_input_text(input_text).map_err(InputValidationError::Input))
 }
 
 impl ParserApp {
@@ -515,40 +569,36 @@ impl ParserApp {
     }
 
     fn handle_parse_lr0(&mut self) {
-        let grammar = match parse_grammar_text(&self.reducer_string).map_err(UiError::Grammar) {
-            Ok(g) => g,
-            Err(e) => {
-                self.parser_result = e.to_string();
+        // ── フェーズ1: 独立な2チェーンを Applicative 的に合成 ──────────────────
+        // grammar → compile（依存的逐次）と input parse（独立）は互いに影響しない。
+        // map2 で合成し、両方成功した場合のみ RunRequest を生成する。
+        // 一方または両方が失敗した場合はすべてのエラーを蓄積して表示する。
+        let compiled = validated_compile(&self.reducer_string);
+        let input    = validate_input(&self.input_string);
+
+        let request = match compiled.map2(input, |cg, symbols| RunRequest {
+            grammar:       cg.grammar,
+            machine:       cg.machine,
+            input_symbols: symbols,
+        }) {
+            Validation::Valid(req) => req,
+            Validation::Invalid(errors) => {
+                self.parser_result = errors.iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join("\n");
                 self.parse_table = None;
                 self.parse_trace.clear();
                 return;
             }
         };
 
-        let machine = match compile(&grammar).map_err(UiError::Compile) {
-            Ok(m) => m,
-            Err(e) => {
-                self.parser_result = e.to_string();
-                self.parse_table = None;
-                self.parse_trace.clear();
-                return;
-            }
-        };
-
-        self.parse_table = Some(build_parse_table(&grammar, &machine));
-        self.terminals = terminals_from_grammar(&grammar);
+        // ── フェーズ2: run（RunRequest への依存的な逐次処理） ──────────────────
+        self.parse_table = Some(build_parse_table(&request.grammar, &request.machine));
+        self.terminals   = terminals_from_grammar(&request.grammar);
         self.apply_default_terminal_types();
 
-        let symbols = match parse_input_text(&self.input_string).map_err(UiError::Grammar) {
-            Ok(s) => s,
-            Err(e) => {
-                self.parser_result = e.to_string();
-                self.parse_trace.clear();
-                return;
-            }
-        };
-
-        match run(&machine, &symbols).map_err(UiError::Runtime) {
+        match run(&request.machine, &request.input_symbols).map_err(UiError::Runtime) {
             Ok(_) => {
                 self.parser_result.clear();
             }
@@ -559,9 +609,9 @@ impl ParserApp {
             }
         }
 
-        self.parse_trace = build_animation_trace(&machine, &symbols).unwrap_or_default();
-        self.trace_cursor = 0;
-        self.anim_playing = false;
+        self.parse_trace = build_animation_trace(&request.machine, &request.input_symbols).unwrap_or_default();
+        self.trace_cursor      = 0;
+        self.anim_playing      = false;
         self.anim_last_advance = None;
     }
 }

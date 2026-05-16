@@ -1,6 +1,7 @@
 mod app;
 mod generator_engine;
 mod pages;
+mod validation;
 
 use app::ParserApp;
 
