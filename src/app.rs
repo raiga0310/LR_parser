@@ -2,7 +2,28 @@ use crate::generator_engine::GeneratorEngine;
 use eframe::{App, egui};
 use lr0_parser_rs::grammar::{Grammar, parse_grammar_text};
 use lr0_parser_rs::lr::{self, CompiledParser};
+use lr0_parser_rs::{AstNode, ParseStep, build_trace};
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ParserKind {
+    Lr0,
+    Slr,
+    Lalr,
+    Lr1,
+}
+
+impl ParserKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Lr0 => "LR(0)",
+            Self::Slr => "SLR(1)",
+            Self::Lalr => "LALR(1)",
+            Self::Lr1 => "LR(1)",
+        }
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParseTableAction {
@@ -40,6 +61,13 @@ pub struct ParserApp {
     pub run_result: String,
     pub generator_engine: GeneratorEngine,
     pub parse_table: Option<(Vec<char>, Vec<Vec<ParseTableAction>>)>,
+
+    pub parse_trace: Vec<ParseStep>,
+    pub trace_cursor: usize,
+    pub anim_playing: bool,
+    pub anim_last_advance: Option<Instant>,
+    pub selected_kind: ParserKind,
+    pub generator_ast: Option<AstNode>,
 }
 
 impl Default for ParserApp {
@@ -59,12 +87,32 @@ impl Default for ParserApp {
             run_result: String::new(),
             generator_engine: GeneratorEngine::new(),
             parse_table: None,
+            parse_trace: Vec::new(),
+            trace_cursor: 0,
+            anim_playing: false,
+            anim_last_advance: None,
+            selected_kind: ParserKind::Lr0,
+            generator_ast: None,
         }
     }
 }
 
 impl App for ParserApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.anim_playing {
+            if let Some(last) = self.anim_last_advance {
+                if last.elapsed() >= Duration::from_millis(700) {
+                    if self.trace_cursor + 1 < self.parse_trace.len() {
+                        self.trace_cursor += 1;
+                        self.anim_last_advance = Some(Instant::now());
+                    } else {
+                        self.anim_playing = false;
+                    }
+                }
+            }
+            ctx.request_repaint_after(Duration::from_millis(50));
+        }
+
         self.setup_fonts(ctx);
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -152,6 +200,7 @@ impl ParserApp {
         {
             Ok(output) => {
                 self.generator_ast_preview = output.ast_preview;
+                self.generator_ast = output.ast;
                 self.generator_source_preview = output.source_preview;
                 self.generator_expression_preview =
                     output.evaluation_expression.unwrap_or_else(|| "<not available>".to_string());
@@ -161,6 +210,7 @@ impl ParserApp {
             }
             Err(err) => {
                 self.generator_ast_preview.clear();
+                self.generator_ast = None;
                 self.generator_source_preview.clear();
                 self.generator_expression_preview.clear();
                 self.generator_notes = vec![err.clone()];
@@ -171,7 +221,7 @@ impl ParserApp {
     }
 
     pub fn run_rust_code(&mut self) {
-        self.run_result = self.generator_engine.run_rust_code(&self.generate_result);
+        self.run_result = crate::generator_engine::run_generated_code(&self.generate_result);
     }
 
     pub fn apply_default_terminal_types(&mut self) {
@@ -179,6 +229,24 @@ impl ParserApp {
             self.terminal_types
                 .entry(terminal)
                 .or_insert_with(|| default_terminal_role(terminal).to_string());
+        }
+    }
+
+    pub fn step_to(&mut self, cursor: usize) {
+        self.trace_cursor = cursor.min(self.parse_trace.len().saturating_sub(1));
+        self.anim_playing = false;
+    }
+
+    pub fn toggle_play(&mut self) {
+        if self.parse_trace.is_empty() {
+            return;
+        }
+        self.anim_playing = !self.anim_playing;
+        if self.anim_playing {
+            if self.trace_cursor + 1 >= self.parse_trace.len() {
+                self.trace_cursor = 0;
+            }
+            self.anim_last_advance = Some(Instant::now());
         }
     }
 }
@@ -243,4 +311,11 @@ pub fn build_parse_table(
     }
 
     (symbols, table)
+}
+
+pub fn build_animation_trace(
+    machine: &CompiledParser,
+    input: &[lr0_parser_rs::grammar::Symbol],
+) -> Option<Vec<ParseStep>> {
+    build_trace(machine, input).ok()
 }
