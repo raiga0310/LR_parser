@@ -68,16 +68,16 @@ impl fmt::Display for UiError {
     }
 }
 
-/// grammar 側のエラー（parse or compile）と input 側のエラーを区別するUI層エラー型。
-/// これにより、両チェーンが互いに独立して失敗したとき両方のエラーを蓄積できる。
-#[derive(Debug)]
-enum InputValidationError {
+/// run へ進む前の準備段階（grammar parse, compile, input parse）で起こるエラー型。
+/// Grammar/Compile/Input の3バリアントにより、どのフェーズで失敗したかが区別できる。
+#[derive(Debug, PartialEq)]
+enum ParsePreparationError {
     Grammar(GrammarError),
     Compile(ParserError),
     Input(GrammarError),
 }
 
-impl fmt::Display for InputValidationError {
+impl fmt::Display for ParsePreparationError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Self::Grammar(e) => write!(f, "Grammar: {}", UiError::Grammar(e.clone())),
@@ -105,20 +105,20 @@ struct RunRequest {
 
 /// grammar text の parse → compile を依存的な逐次チェーンとして実行する。
 /// parse が失敗すれば compile は行わない。
-fn validated_compile(grammar_text: &str) -> Validation<InputValidationError, CompiledGrammar> {
+fn validated_compile(grammar_text: &str) -> Validation<ParsePreparationError, CompiledGrammar> {
     let grammar = match parse_grammar_text(grammar_text) {
         Ok(g)  => g,
-        Err(e) => return Validation::invalid(InputValidationError::Grammar(e)),
+        Err(e) => return Validation::invalid(ParsePreparationError::Grammar(e)),
     };
     match compile(&grammar) {
         Ok(machine) => Validation::valid(CompiledGrammar { grammar, machine }),
-        Err(e)      => Validation::invalid(InputValidationError::Compile(e)),
+        Err(e)      => Validation::invalid(ParsePreparationError::Compile(e)),
     }
 }
 
 /// input text の parse は grammar と独立して行える。
-fn validate_input(input_text: &str) -> Validation<InputValidationError, Vec<Symbol>> {
-    Validation::from_result(parse_input_text(input_text).map_err(InputValidationError::Input))
+fn validate_input(input_text: &str) -> Validation<ParsePreparationError, Vec<Symbol>> {
+    Validation::from_result(parse_input_text(input_text).map_err(ParsePreparationError::Input))
 }
 
 impl ParserApp {
@@ -632,5 +632,80 @@ fn render_action_label(action: &StepAction) -> (String, egui::Color32) {
             "ACCEPT".to_string(),
             egui::Color32::from_rgb(200, 100, 220),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::validation::Validation;
+
+    const VALID_GRAMMAR: &str = "E -> E+B\nE -> B\nB -> 0\nB -> 1";
+    // E -> EE が Shift/Reduce 競合を引き起こし compile が失敗する文法
+    const CONFLICT_GRAMMAR: &str = "E -> <>\nE -> <E>\nE -> EE";
+
+    // ── validated_compile ────────────────────────────────────────────
+
+    #[test]
+    fn validated_compile_valid_grammar_returns_valid() {
+        assert!(matches!(validated_compile(VALID_GRAMMAR), Validation::Valid(_)));
+    }
+
+    #[test]
+    fn validated_compile_empty_grammar_returns_grammar_error() {
+        assert!(matches!(
+            validated_compile(""),
+            Validation::Invalid(ref errs) if matches!(errs[0], ParsePreparationError::Grammar(_))
+        ));
+    }
+
+    #[test]
+    fn validated_compile_conflict_grammar_returns_compile_error() {
+        assert!(matches!(
+            validated_compile(CONFLICT_GRAMMAR),
+            Validation::Invalid(ref errs) if matches!(errs[0], ParsePreparationError::Compile(_))
+        ));
+    }
+
+    // ── validate_input ───────────────────────────────────────────────
+
+    #[test]
+    fn validate_input_valid_returns_valid() {
+        assert!(matches!(validate_input("1+0"), Validation::Valid(_)));
+    }
+
+    #[test]
+    fn validate_input_nonterminal_returns_input_error() {
+        assert!(matches!(
+            validate_input("X"),
+            Validation::Invalid(ref errs) if matches!(errs[0], ParsePreparationError::Input(_))
+        ));
+    }
+
+    // ── 合成フロー（map2） ────────────────────────────────────────────
+
+    #[test]
+    fn good_grammar_and_bad_input_yields_single_input_error() {
+        let result = validated_compile(VALID_GRAMMAR)
+            .map2(validate_input("X"), |_, _| unreachable!());
+        assert!(matches!(
+            result,
+            Validation::Invalid(ref errs)
+                if errs.len() == 1 && matches!(errs[0], ParsePreparationError::Input(_))
+        ));
+    }
+
+    #[test]
+    fn compile_fail_and_bad_input_accumulates_both_errors() {
+        // 設計価値の中心: compile 失敗と input 失敗が同時に蓄積される
+        let result = validated_compile(CONFLICT_GRAMMAR)
+            .map2(validate_input("X"), |_, _| unreachable!());
+        assert!(matches!(
+            result,
+            Validation::Invalid(ref errs)
+                if errs.len() == 2
+                    && matches!(errs[0], ParsePreparationError::Compile(_))
+                    && matches!(errs[1], ParsePreparationError::Input(_))
+        ));
     }
 }
