@@ -27,10 +27,13 @@ pub fn parse_grammar_text(input: &str) -> Result<Grammar, GrammarError> {
             return Err(GrammarError::InvalidProductionFormat);
         }
 
-        let left = left
-            .chars()
+        let mut left_chars = left.chars();
+        let left = left_chars
             .next()
             .ok_or(GrammarError::MissingLeftHandSide)?;
+        if left_chars.next().is_some() {
+            return Err(GrammarError::NonTerminalTooLong);
+        }
 
         if !left.is_ascii_uppercase() {
             return Err(GrammarError::InvalidSymbol(left));
@@ -95,6 +98,7 @@ pub enum GrammarError {
     EmptyGrammar,
     InvalidProductionFormat,
     MissingLeftHandSide,
+    NonTerminalTooLong,
     InvalidSymbol(char),
 }
 

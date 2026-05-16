@@ -129,10 +129,16 @@ fn insert_action(
     terminal: Terminal,
     action: Action,
 ) -> Result<(), ParserError> {
-    if let std::collections::btree_map::Entry::Vacant(entry) = table.entry((state, terminal)) {
-        entry.insert(action);
+    match table.entry((state, terminal)) {
+        std::collections::btree_map::Entry::Vacant(entry) => {
+            entry.insert(action);
+        }
+        std::collections::btree_map::Entry::Occupied(entry) => {
+            if *entry.get() != action {
+                return Err(ParserError::ConflictReducer);
+            }
+        }
     }
-
     Ok(())
 }
 

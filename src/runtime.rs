@@ -2,6 +2,23 @@ use crate::ast::AstNode;
 use crate::grammar::Symbol;
 use crate::lr::{Action, CompiledParser, InternalState};
 
+#[derive(Debug, Clone)]
+pub enum StepAction {
+    Shift { terminal: char, to_state: usize },
+    Reduce { rule: String, pop_count: usize },
+    Accept,
+}
+
+#[derive(Debug, Clone)]
+pub struct ParseStep {
+    pub action: StepAction,
+    pub from_state: usize,
+    pub lookahead: char,
+    pub state_stack: Vec<usize>,
+    pub remaining_input: Vec<char>,
+    pub ast_stack: Vec<AstNode>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParserResult {
     pub ast: AstNode,
@@ -130,6 +147,93 @@ pub fn run(
             StepResult::Accept(result) => return Ok(result),
         }
     }
+}
+
+pub fn build_trace(
+    machine: &CompiledParser,
+    input: &[Symbol],
+) -> Result<Vec<ParseStep>, RuntimeError> {
+    let mut steps = Vec::new();
+    let mut state = ParserState::new(input.to_vec(), machine.start_state());
+
+    loop {
+        let from_state = state.current_state()?;
+        let next_sym = state
+            .remaining_input
+            .first()
+            .cloned()
+            .ok_or(RuntimeError::ExpectedTerminalInput)?;
+        let Symbol::Terminal(terminal) = next_sym else {
+            return Err(RuntimeError::ExpectedTerminalInput);
+        };
+        let lookahead = terminal.0;
+
+        let action = machine
+            .action(from_state, terminal)
+            .ok_or(RuntimeError::InvalidAction)?;
+
+        let step_action = match &action {
+            Action::Shift(to) => StepAction::Shift { terminal: lookahead, to_state: *to },
+            Action::Reduce(prod_id) => {
+                let prod = machine
+                    .production(*prod_id)
+                    .ok_or(RuntimeError::InvalidReduce)?;
+                let rhs: String = prod
+                    .right
+                    .iter()
+                    .map(|s| match s {
+                        Symbol::Terminal(t) => t.0.to_string(),
+                        Symbol::NonTerminal(nt) => nt.0.to_string(),
+                    })
+                    .collect();
+                StepAction::Reduce {
+                    rule: format!("{} -> {}", prod.left.0, rhs),
+                    pop_count: prod.right.len(),
+                }
+            }
+            Action::Accept => StepAction::Accept,
+        };
+
+        let step_result = step(machine, state)?;
+
+        match step_result {
+            StepResult::Continue(next) => {
+                let remaining: Vec<char> = next
+                    .remaining_input
+                    .iter()
+                    .filter_map(|s| {
+                        if let Symbol::Terminal(t) = s {
+                            Some(t.0)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                steps.push(ParseStep {
+                    action: step_action,
+                    from_state,
+                    lookahead,
+                    state_stack: next.state_stack.clone(),
+                    remaining_input: remaining,
+                    ast_stack: next.ast_stack.clone(),
+                });
+                state = next;
+            }
+            StepResult::Accept(result) => {
+                steps.push(ParseStep {
+                    action: step_action,
+                    from_state,
+                    lookahead,
+                    state_stack: vec![],
+                    remaining_input: vec![],
+                    ast_stack: vec![result.ast.clone()],
+                });
+                break;
+            }
+        }
+    }
+
+    Ok(steps)
 }
 
 #[cfg(test)]
