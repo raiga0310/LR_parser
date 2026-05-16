@@ -10,6 +10,7 @@ use std::process::Command;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenerationOutput {
     pub ast_preview: String,
+    pub ast: Option<AstNode>,
     pub source_preview: String,
     pub evaluation_expression: Option<String>,
     pub generated_code: String,
@@ -45,9 +46,10 @@ impl GeneratorEngine {
         let result =
             run(&machine, &input).map_err(|err| format!("Failed to run parser: {err:?}"))?;
 
-        let ast_preview = result.ast.to_string();
-        let source_preview = self.render_source_preview(&result.ast);
-        let evaluation_expression = self.render_evaluation_expression(&result.ast);
+        let ast = result.ast;
+        let ast_preview = ast.to_string();
+        let source_preview = self.render_source_preview(&ast);
+        let evaluation_expression = self.render_evaluation_expression(&ast);
 
         let mut notes = Vec::new();
         if source_preview.is_empty() {
@@ -74,6 +76,7 @@ impl GeneratorEngine {
 
         Ok(GenerationOutput {
             ast_preview,
+            ast: Some(ast),
             source_preview,
             evaluation_expression,
             generated_code,
@@ -185,67 +188,68 @@ impl GeneratorEngine {
         generated
     }
 
-    pub fn run_rust_code(&self, generated_code: &str) -> String {
-        if generated_code.trim().is_empty() {
-            return "No code to run. Please generate code first.".to_string();
-        }
+}
 
-        let build_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("target")
-            .join("generated");
+pub fn run_generated_code(generated_code: &str) -> String {
+    if generated_code.trim().is_empty() {
+        return "No code to run. Please generate code first.".to_string();
+    }
 
-        if let Err(err) = fs::create_dir_all(&build_dir) {
-            return format!("Failed to create build directory: {err}");
-        }
+    let build_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("target")
+        .join("generated");
 
-        let source_path = build_dir.join("generated_main.rs");
-        let binary_path = build_dir.join(format!("generated_program{}", std::env::consts::EXE_SUFFIX));
+    if let Err(err) = fs::create_dir_all(&build_dir) {
+        return format!("Failed to create build directory: {err}");
+    }
 
-        if let Err(err) = fs::write(&source_path, generated_code) {
-            return format!("Failed to write generated source: {err}");
-        }
+    let source_path = build_dir.join("generated_main.rs");
+    let binary_path = build_dir.join(format!("generated_program{}", std::env::consts::EXE_SUFFIX));
 
-        let compile_output = match Command::new("rustc")
-            .arg("--edition=2024")
-            .arg(&source_path)
-            .arg("-o")
-            .arg(&binary_path)
-            .output()
-        {
-            Ok(output) => output,
-            Err(err) => return format!("Failed to invoke rustc: {err}"),
-        };
+    if let Err(err) = fs::write(&source_path, generated_code) {
+        return format!("Failed to write generated source: {err}");
+    }
 
-        if !compile_output.status.success() {
-            return format!(
-                "Rust compilation failed.\n{}",
-                String::from_utf8_lossy(&compile_output.stderr)
-            );
-        }
+    let compile_output = match Command::new("rustc")
+        .arg("--edition=2024")
+        .arg(&source_path)
+        .arg("-o")
+        .arg(&binary_path)
+        .output()
+    {
+        Ok(output) => output,
+        Err(err) => return format!("Failed to invoke rustc: {err}"),
+    };
 
-        let run_output = match Command::new(&binary_path).output() {
-            Ok(output) => output,
-            Err(err) => return format!("Failed to run generated binary: {err}"),
-        };
+    if !compile_output.status.success() {
+        return format!(
+            "Rust compilation failed.\n{}",
+            String::from_utf8_lossy(&compile_output.stderr)
+        );
+    }
 
-        let stdout = String::from_utf8_lossy(&run_output.stdout);
-        let stderr = String::from_utf8_lossy(&run_output.stderr);
+    let run_output = match Command::new(&binary_path).output() {
+        Ok(output) => output,
+        Err(err) => return format!("Failed to run generated binary: {err}"),
+    };
 
-        if run_output.status.success() {
-            if stderr.trim().is_empty() {
-                stdout.trim_end().to_string()
-            } else {
-                format!("{}\n\nstderr:\n{}", stdout.trim_end(), stderr.trim_end())
-            }
-        } else if stdout.trim().is_empty() {
-            format!("Generated binary failed.\n{}", stderr.trim_end())
+    let stdout = String::from_utf8_lossy(&run_output.stdout);
+    let stderr = String::from_utf8_lossy(&run_output.stderr);
+
+    if run_output.status.success() {
+        if stderr.trim().is_empty() {
+            stdout.trim_end().to_string()
         } else {
-            format!(
-                "Generated binary failed.\nstdout:\n{}\n\nstderr:\n{}",
-                stdout.trim_end(),
-                stderr.trim_end()
-            )
+            format!("{}\n\nstderr:\n{}", stdout.trim_end(), stderr.trim_end())
         }
+    } else if stdout.trim().is_empty() {
+        format!("Generated binary failed.\n{}", stderr.trim_end())
+    } else {
+        format!(
+            "Generated binary failed.\nstdout:\n{}\n\nstderr:\n{}",
+            stdout.trim_end(),
+            stderr.trim_end()
+        )
     }
 }
 
