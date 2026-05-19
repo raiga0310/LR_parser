@@ -243,6 +243,58 @@ mod tests {
     use crate::lr::compile;
 
     #[test]
+    fn dump_trace_for_debug() {
+        let grammar = parse_grammar_text("E -> E*B\nE -> E+B\nE -> B\nB -> 0\nB -> 1").unwrap();
+        let machine = compile(&grammar).unwrap();
+        let input = [
+            Symbol::Terminal(Terminal('1')),
+            Symbol::Terminal(Terminal('+')),
+            Symbol::Terminal(Terminal('1')),
+            Symbol::Terminal(Terminal('*')),
+            Symbol::Terminal(Terminal('1')),
+            Symbol::Terminal(Terminal('$')),
+        ];
+
+        let trace = build_trace(&machine, &input).unwrap();
+
+        println!("\n=== PARSE TRACE DUMP ===");
+        println!("grammar: E->E*B | E->E+B | E->B | B->0 | B->1");
+        println!("input:   1+1*1");
+        println!("steps:   {}", trace.len());
+        println!();
+
+        for (i, step) in trace.iter().enumerate() {
+            let action_str = match &step.action {
+                StepAction::Shift { terminal, to_state } =>
+                    format!("SHIFT '{}' -> state {}", terminal, to_state),
+                StepAction::Reduce { rule, pop_count } =>
+                    format!("REDUCE {} (pop {})", rule, pop_count),
+                StepAction::Accept => "ACCEPT".to_string(),
+            };
+
+            let sm_edge = match &step.action {
+                StepAction::Shift { terminal, to_state } =>
+                    format!("sm_edge: {} --'{}'-> {}", step.from_state, terminal, to_state),
+                StepAction::Reduce { rule, .. } =>
+                    format!("sm_edge: <none; reduce {}>", rule),
+                StepAction::Accept =>
+                    format!("sm_edge: <none; accept at {}>", step.from_state),
+            };
+
+            let stack: String = step.state_stack.iter()
+                .map(|s| s.to_string()).collect::<Vec<_>>().join(",");
+            let remaining: String = step.remaining_input.iter().collect();
+
+            println!("step {:>2}: [pre]  from_state={}  lookahead='{}'  action={}",
+                i + 1, step.from_state, step.lookahead, action_str);
+            println!("         [post] stack=[{}]  remaining='{}'", stack, remaining);
+            println!("         [sm]   {}", sm_edge);
+            println!();
+        }
+        println!("=== END TRACE DUMP ===");
+    }
+
+    #[test]
     fn run_returns_an_ast() {
         let grammar = parse_grammar_text("E -> E+B\nE -> B\nB -> 0\nB -> 1").unwrap();
         let machine = compile(&grammar).unwrap();

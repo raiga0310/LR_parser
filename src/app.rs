@@ -2,9 +2,69 @@ use crate::generator_engine::GeneratorEngine;
 use eframe::{App, egui};
 use lr0_parser_rs::grammar::{Grammar, parse_grammar_text};
 use lr0_parser_rs::lr::{self, CompiledParser};
-use lr0_parser_rs::{AstNode, ParseStep, build_trace};
+use lr0_parser_rs::{AstNode, ParseStep, StateInfo, StepAction, build_trace};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
+
+// ── Parse result types ────────────────────────────────────────────────────────
+
+pub struct ParseArtifacts {
+    pub symbols: Vec<char>,
+    pub table: Vec<Vec<ParseTableAction>>,
+    pub state_infos: Vec<StateInfo>,
+    pub accept_states: Vec<usize>,
+}
+
+pub enum ParserStatus {
+    Empty,
+    Ready(ParseArtifacts),
+}
+
+// ── View models (read-only DTOs for UI rendering) ────────────────────────────
+
+#[derive(Clone)]
+pub struct TraceCursorView {
+    pub cursor: usize,
+    pub total: usize,
+    pub is_playing: bool,
+    pub step: Option<ParseStep>,
+}
+
+#[derive(Clone, Default)]
+pub struct SmHighlightView {
+    pub active_edge: Option<(usize, char, usize)>,
+    pub source_state: Option<usize>,
+    pub result_state: Option<usize>,
+}
+
+impl TraceCursorView {
+    pub fn sm_highlight(&self) -> SmHighlightView {
+        let Some(step) = &self.step else {
+            return SmHighlightView::default();
+        };
+        let active_edge = match &step.action {
+            StepAction::Shift { terminal, to_state } => {
+                Some((step.from_state, *terminal, *to_state))
+            }
+            StepAction::Reduce { .. } | StepAction::Accept => None,
+        };
+        let source_state = Some(step.from_state);
+        let result_state = match &step.action {
+            StepAction::Shift { to_state, .. } => Some(*to_state),
+            StepAction::Reduce { .. } => step.state_stack.last().copied(),
+            StepAction::Accept => None,
+        };
+        SmHighlightView { active_edge, source_state, result_state }
+    }
+}
+
+// ── Page / algorithm enums ────────────────────────────────────────────────────
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Page {
+    Parser,
+    Generator,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParserKind {
@@ -46,97 +106,128 @@ impl ParseTableAction {
     }
 }
 
-pub struct ParserApp {
+// ── Sub-state structs ─────────────────────────────────────────────────────────
+
+pub struct UiState {
+    pub current_page: Page,
+    pub fonts_initialized: bool,
+}
+
+pub struct AppServices {
+    pub generator_engine: GeneratorEngine,
+}
+
+pub struct WorkspaceState {
     pub input_string: String,
     pub reducer_string: String,
-    pub parser_result: String,
     pub terminals: Vec<char>,
-    pub current_page: usize,
-    pub generate_result: String,
-    pub generator_ast_preview: String,
-    pub generator_source_preview: String,
-    pub generator_expression_preview: String,
-    pub generator_notes: Vec<String>,
     pub terminal_types: HashMap<char, String>,
-    pub run_result: String,
-    pub generator_engine: GeneratorEngine,
-    pub parse_table: Option<(Vec<char>, Vec<Vec<ParseTableAction>>)>,
+}
 
+pub struct GeneratorPageState {
+    pub generate_result: String,
+    pub ast_preview: String,
+    pub source_preview: String,
+    pub expression_preview: String,
+    pub notes: Vec<String>,
+    pub run_result: String,
+    pub ast: Option<AstNode>,
+}
+
+pub struct ParserPageState {
+    pub result: String,
+    pub selected_kind: ParserKind,
     pub parse_trace: Vec<ParseStep>,
     pub trace_cursor: usize,
     pub anim_playing: bool,
     pub anim_last_advance: Option<Instant>,
-    pub selected_kind: ParserKind,
-    pub generator_ast: Option<AstNode>,
+    pub status: ParserStatus,
+}
+
+// ── App ───────────────────────────────────────────────────────────────────────
+
+pub struct ParserApp {
+    pub ui: UiState,
+    pub services: AppServices,
+    pub workspace: WorkspaceState,
+    pub generator: GeneratorPageState,
+    pub parser: ParserPageState,
 }
 
 impl Default for ParserApp {
     fn default() -> Self {
         Self {
-            input_string: String::new(),
-            reducer_string: String::from("E -> E*B\nE -> E+B\nE -> B\nB -> 0\nB -> 1"),
-            parser_result: String::new(),
-            terminals: vec![],
-            current_page: 0,
-            generate_result: String::new(),
-            generator_ast_preview: String::new(),
-            generator_source_preview: String::new(),
-            generator_expression_preview: String::new(),
-            generator_notes: Vec::new(),
-            terminal_types: HashMap::new(),
-            run_result: String::new(),
-            generator_engine: GeneratorEngine::new(),
-            parse_table: None,
-            parse_trace: Vec::new(),
-            trace_cursor: 0,
-            anim_playing: false,
-            anim_last_advance: None,
-            selected_kind: ParserKind::Lr0,
-            generator_ast: None,
+            ui: UiState {
+                current_page: Page::Parser,
+                fonts_initialized: false,
+            },
+            services: AppServices {
+                generator_engine: GeneratorEngine::new(),
+            },
+            workspace: WorkspaceState {
+                input_string: String::new(),
+                reducer_string: String::from("E -> E*B\nE -> E+B\nE -> B\nB -> 0\nB -> 1"),
+                terminals: vec![],
+                terminal_types: HashMap::new(),
+            },
+            generator: GeneratorPageState {
+                generate_result: String::new(),
+                ast_preview: String::new(),
+                source_preview: String::new(),
+                expression_preview: String::new(),
+                notes: Vec::new(),
+                run_result: String::new(),
+                ast: None,
+            },
+            parser: ParserPageState {
+                result: String::new(),
+                selected_kind: ParserKind::Lr0,
+                parse_trace: Vec::new(),
+                trace_cursor: 0,
+                anim_playing: false,
+                anim_last_advance: None,
+                status: ParserStatus::Empty,
+            },
         }
     }
 }
 
 impl App for ParserApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if self.anim_playing {
-            if let Some(last) = self.anim_last_advance {
+        if self.parser.anim_playing {
+            if let Some(last) = self.parser.anim_last_advance {
                 if last.elapsed() >= Duration::from_millis(700) {
-                    if self.trace_cursor + 1 < self.parse_trace.len() {
-                        self.trace_cursor += 1;
-                        self.anim_last_advance = Some(Instant::now());
+                    if self.parser.trace_cursor + 1 < self.parser.parse_trace.len() {
+                        self.parser.trace_cursor += 1;
+                        self.parser.anim_last_advance = Some(Instant::now());
                     } else {
-                        self.anim_playing = false;
+                        self.parser.anim_playing = false;
                     }
                 }
             }
             ctx.request_repaint_after(Duration::from_millis(50));
         }
 
-        self.setup_fonts(ctx);
+        if !self.ui.fonts_initialized {
+            self.setup_fonts(ctx);
+            self.ui.fonts_initialized = true;
+        }
+
+        egui::TopBottomPanel::top("app_header")
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.add_space(10.0);
+                ui.heading("LR(0) Parser GUI");
+                ui.add_space(10.0);
+                self.show_tabs(ui);
+                ui.add_space(10.0);
+            });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.add_space(5.0);
-
-                ui.vertical(|ui| {
-                    ui.add_space(10.0);
-                    ui.heading("LR(0) Parser GUI");
-                    ui.add_space(10.0);
-
-                    self.show_tabs(ui);
-
-                    ui.add_space(10.0);
-
-                    match self.current_page {
-                        0 => self.show_parser_page(ui),
-                        1 => self.show_generator_page(ui),
-                        _ => {}
-                    }
-
-                    ui.add_space(10.0);
-                });
-            });
+            match self.ui.current_page {
+                Page::Parser => self.show_parser_page(ui),
+                Page::Generator => self.show_generator_page(ui),
+            }
         });
     }
 }
@@ -173,17 +264,17 @@ impl ParserApp {
     fn show_tabs(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             if ui
-                .selectable_label(self.current_page == 0, "Parser")
+                .selectable_label(self.ui.current_page == Page::Parser, "Parser")
                 .clicked()
             {
-                self.current_page = 0;
+                self.ui.current_page = Page::Parser;
             }
             if ui
-                .selectable_label(self.current_page == 1, "Generator")
+                .selectable_label(self.ui.current_page == Page::Generator, "Generator")
                 .clicked()
             {
-                self.current_page = 1;
-                self.terminals = parse_grammar_text(&self.reducer_string)
+                self.ui.current_page = Page::Generator;
+                self.workspace.terminals = parse_grammar_text(&self.workspace.reducer_string)
                     .map(|grammar| terminals_from_grammar(&grammar))
                     .unwrap_or_default();
                 self.apply_default_terminal_types();
@@ -192,61 +283,75 @@ impl ParserApp {
     }
 
     pub fn generate_code(&mut self) {
-        self.generator_engine
-            .set_terminal_types(self.terminal_types.clone());
-        match self
+        self.services
             .generator_engine
-            .generate_output(&self.reducer_string, &self.input_string)
+            .set_terminal_types(self.workspace.terminal_types.clone());
+        match self
+            .services
+            .generator_engine
+            .generate_output(&self.workspace.reducer_string, &self.workspace.input_string)
         {
             Ok(output) => {
-                self.generator_ast_preview = output.ast_preview;
-                self.generator_ast = output.ast;
-                self.generator_source_preview = output.source_preview;
-                self.generator_expression_preview =
+                self.generator.ast_preview = output.ast_preview;
+                self.generator.ast = output.ast;
+                self.generator.source_preview = output.source_preview;
+                self.generator.expression_preview =
                     output.evaluation_expression.unwrap_or_else(|| "<not available>".to_string());
-                self.generator_notes = output.notes;
-                self.generate_result = output.generated_code;
-                self.run_result.clear();
+                self.generator.notes = output.notes;
+                self.generator.generate_result = output.generated_code;
+                self.generator.run_result.clear();
             }
             Err(err) => {
-                self.generator_ast_preview.clear();
-                self.generator_ast = None;
-                self.generator_source_preview.clear();
-                self.generator_expression_preview.clear();
-                self.generator_notes = vec![err.clone()];
-                self.generate_result = err;
-                self.run_result.clear();
+                self.generator.ast_preview.clear();
+                self.generator.ast = None;
+                self.generator.source_preview.clear();
+                self.generator.expression_preview.clear();
+                self.generator.notes = vec![err.clone()];
+                self.generator.generate_result = err;
+                self.generator.run_result.clear();
             }
         }
     }
 
     pub fn run_rust_code(&mut self) {
-        self.run_result = crate::generator_engine::run_generated_code(&self.generate_result);
+        let code = self.generator.generate_result.clone();
+        self.generator.run_result = crate::generator_engine::run_generated_code(&code);
     }
 
     pub fn apply_default_terminal_types(&mut self) {
-        for &terminal in &self.terminals {
-            self.terminal_types
+        for &terminal in &self.workspace.terminals {
+            self.workspace
+                .terminal_types
                 .entry(terminal)
                 .or_insert_with(|| default_terminal_role(terminal).to_string());
         }
     }
 
+    pub fn cursor_view(&self) -> TraceCursorView {
+        TraceCursorView {
+            cursor: self.parser.trace_cursor,
+            total: self.parser.parse_trace.len(),
+            is_playing: self.parser.anim_playing,
+            step: self.parser.parse_trace.get(self.parser.trace_cursor).cloned(),
+        }
+    }
+
     pub fn step_to(&mut self, cursor: usize) {
-        self.trace_cursor = cursor.min(self.parse_trace.len().saturating_sub(1));
-        self.anim_playing = false;
+        self.parser.trace_cursor =
+            cursor.min(self.parser.parse_trace.len().saturating_sub(1));
+        self.parser.anim_playing = false;
     }
 
     pub fn toggle_play(&mut self) {
-        if self.parse_trace.is_empty() {
+        if self.parser.parse_trace.is_empty() {
             return;
         }
-        self.anim_playing = !self.anim_playing;
-        if self.anim_playing {
-            if self.trace_cursor + 1 >= self.parse_trace.len() {
-                self.trace_cursor = 0;
+        self.parser.anim_playing = !self.parser.anim_playing;
+        if self.parser.anim_playing {
+            if self.parser.trace_cursor + 1 >= self.parser.parse_trace.len() {
+                self.parser.trace_cursor = 0;
             }
-            self.anim_last_advance = Some(Instant::now());
+            self.parser.anim_last_advance = Some(Instant::now());
         }
     }
 }
@@ -277,7 +382,8 @@ pub fn build_parse_table(
     grammar: &Grammar,
     compiled_parser: &CompiledParser,
 ) -> (Vec<char>, Vec<Vec<ParseTableAction>>) {
-    let mut symbols: Vec<char> = grammar.terminals().into_iter().map(|terminal| terminal.0).collect();
+    let mut symbols: Vec<char> =
+        grammar.terminals().into_iter().map(|terminal| terminal.0).collect();
     if !symbols.contains(&'$') {
         symbols.push('$');
     }
@@ -288,7 +394,8 @@ pub fn build_parse_table(
             .map(|non_terminal| non_terminal.0),
     );
 
-    let mut table = vec![vec![ParseTableAction::Error; symbols.len()]; compiled_parser.state_count()];
+    let mut table =
+        vec![vec![ParseTableAction::Error; symbols.len()]; compiled_parser.state_count()];
 
     for state in 0..compiled_parser.state_count() {
         for (column, symbol) in symbols.iter().copied().enumerate() {
