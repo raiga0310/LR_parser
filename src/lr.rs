@@ -114,12 +114,26 @@ pub fn compile(grammar: &Grammar) -> Result<CompiledParser, ParserError> {
         }
     }
 
+    let state_infos: Vec<StateInfo> = item_sets.iter().enumerate().map(|(id, item_set)| {
+        let items = item_set.iter().map(|item| LrItem {
+            production: item.production.clone(),
+            dot_pos: item.dot_pos,
+        }).collect();
+        let mut transitions: Vec<(Symbol, usize)> = edges.iter()
+            .filter(|((state, _), _)| *state == id)
+            .map(|((_, sym), &next)| (sym.clone(), next))
+            .collect();
+        transitions.sort_by(|a, b| a.0.cmp(&b.0));
+        StateInfo { id, items, transitions }
+    }).collect();
+
     Ok(CompiledParser {
         productions,
         action_table,
         goto_table,
         start_state: 0,
         state_count: item_sets.len(),
+        state_infos,
     })
 }
 
@@ -223,12 +237,26 @@ struct Item {
 pub type InternalState = usize;
 type ProductionId = usize;
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LrItem {
+    pub production: Production,
+    pub dot_pos: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct StateInfo {
+    pub id: usize,
+    pub items: Vec<LrItem>,
+    pub transitions: Vec<(Symbol, usize)>,
+}
+
 pub struct CompiledParser {
     productions: Vec<Production>,
     action_table: BTreeMap<(InternalState, Terminal), Action>,
     goto_table: BTreeMap<(InternalState, NonTerminal), InternalState>,
     start_state: InternalState,
     state_count: usize,
+    state_infos: Vec<StateInfo>,
 }
 
 impl CompiledParser {
@@ -254,6 +282,10 @@ impl CompiledParser {
 
     pub fn state_count(&self) -> usize {
         self.state_count
+    }
+
+    pub fn state_infos(&self) -> &[StateInfo] {
+        &self.state_infos
     }
 }
 

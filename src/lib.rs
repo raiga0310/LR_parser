@@ -4,6 +4,7 @@ pub mod lr;
 pub mod runtime;
 
 pub use ast::AstNode;
+pub use lr::{LrItem, StateInfo};
 pub use runtime::{ParseStep, StepAction, build_trace};
 
 #[cfg(test)]
